@@ -111,6 +111,7 @@ function isValidStation(station) {
 
 function isPrecise(station) {
   return station.google_maps_type === 'fiche'
+    || station.position_source === 'totalwash_official'
     || station.position_source === 'osm'
     || normalizeText(station.precision_position).includes('fiche google maps');
 }
@@ -205,6 +206,7 @@ function matchesSearch(station) {
 }
 
 function matchesQuickFilter(station) {
+  if (state.quickFilter === 'totalwash') return station.network === 'totalwash';
   if (state.quickFilter === 'contactless') return isContactless(station);
   if (state.quickFilter === 'other') return !isContactless(station);
   if (state.quickFilter === 'precise') return isPrecise(station);
@@ -276,6 +278,7 @@ function renderStations() {
   if (state.searchQuery) context.push(`Recherche : “${state.searchQuery}”`);
   if (state.quickFilter === 'contactless') context.push('Sans contact vérifié');
   if (state.quickFilter === 'other') context.push('Autres lavages');
+  if (state.quickFilter === 'totalwash') context.push('Réseau Total Wash · source officielle');
   if (state.quickFilter === 'precise') context.push('Positions précises uniquement');
   if (state.quickFilter === 'favorites') context.push('Favoris uniquement');
   if (state.route && routeFilter.checked) context.push(`À ≤ ${distanceRange.value} km du tracé`);
@@ -585,9 +588,10 @@ async function loadOtherStationsNearby({ silent = false } = {}) {
 
 async function loadStations() {
   try {
-    const [strictResult, otherResult] = await Promise.allSettled([
+    const [strictResult, otherResult, totalResult] = await Promise.allSettled([
       fetch('stations.json', { cache: 'no-store' }),
-      fetch('stations-autres.json', { cache: 'no-store' })
+      fetch('stations-autres.json', { cache: 'no-store' }),
+      fetch('stations-totalwash.json', { cache: 'no-store' })
     ]);
 
     if (strictResult.status !== 'fulfilled' || !strictResult.value.ok) {
@@ -602,9 +606,21 @@ async function loadStations() {
       console.warn('Wash 2.0: stations-autres.json indisponible, la base sans contact reste utilisable.');
     }
 
+    let totalRaw = [];
+    let totalLoaded = false;
+    if (totalResult.status === 'fulfilled' && totalResult.value.ok) {
+      try {
+        const data = await totalResult.value.json();
+        if (!Array.isArray(data)) throw new Error('Format Total Wash incorrect');
+        totalRaw = data;
+        totalLoaded = true;
+      } catch (error) { console.warn('Wash 2.0: base Total Wash indisponible', error); }
+    }
+
     const allRaw = [
       ...strictRaw.map((station) => normalizedStation(station, 'contactless')),
-      ...otherRaw.map((station) => normalizedStation(station, 'other'))
+      ...otherRaw.map((station) => normalizedStation(station, 'other')),
+      ...totalRaw.map((station) => normalizedStation(station, 'other'))
     ].filter(isValidStation);
 
     const ids = new Set();
@@ -618,6 +634,7 @@ async function loadStations() {
     updateCounters();
     renderStations();
     statusBox.classList.remove('visible');
+    if (!totalLoaded) showStatus('La base Total Wash n’a pas pu être chargée. Recharge la page pour réessayer.', 0);
 
     if (allRaw.length !== state.stations.length) {
       console.warn(`Wash 2.0: ${allRaw.length - state.stations.length} entrée(s) dupliquée(s) ignorée(s).`);

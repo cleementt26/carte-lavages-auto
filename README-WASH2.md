@@ -11,6 +11,8 @@ Cette version repart du dépôt `cleementt26/lavage-sans-contact-france` et cons
 
 ## Fonctions
 
+- Réseau Total Wash : 1 084 centres importés du localisateur officiel au 29 septembre 2026, avec filtre dédié, services et lien source. Voir `SOURCES-TOTALWASH.md`. Les données sont dans `stations-totalwash.json` et restent dans la catégorie « Autres ».
+
 - carte Leaflet / OpenStreetMap ;
 - géolocalisation ;
 - recherche par nom, ville, adresse, code postal et type ;
