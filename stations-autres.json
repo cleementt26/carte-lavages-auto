@@ -1,0 +1,139 @@
+[
+  {
+    "id": 1001,
+    "kind": "other",
+    "nom": "Aqua Factory Annecy",
+    "adresse": "134 avenue de Genève, 74000 Annecy, France",
+    "latitude": 45.92714,
+    "longitude": 6.12507,
+    "wash_type": "rouleaux_haute_pression",
+    "wash_type_label": "Portique à brosses + haute pression",
+    "sources": [
+      "https://aquafactory.fr/nos-centres/aqua-factory-annecy/",
+      "https://mapcarta.com/fr/W31987389"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Position OpenStreetMap du centre Aqua Factory.",
+    "position_source": "osm",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Aqua%20Factory%20Annecy%20134%20avenue%20de%20Gen%C3%A8ve%2074000%20Annecy",
+    "google_maps_type": "recherche",
+    "verification_equipement": "Le site officiel annonce des pistes haute pression et un portique automatique. Aqua Factory décrit ses portiques comme utilisant des brosses anti-rayures."
+  },
+  {
+    "id": 1002,
+    "kind": "other",
+    "nom": "Aqua Factory Sévrier",
+    "adresse": "Carrefour Market, 75 route des Pontets, 74320 Sévrier, France",
+    "latitude": 45.84485,
+    "longitude": 6.14982,
+    "wash_type": "rouleaux_haute_pression",
+    "wash_type_label": "Portique à brosses + haute pression",
+    "sources": [
+      "https://aquafactory.fr/nos-centres/aqua-factory-sevrier/",
+      "https://www.carrefour.fr/magasin/market-sevrier"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Position du site Carrefour Market ; le lavage est situé sur le parking du centre.",
+    "position_source": "osm",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Aqua%20Factory%20S%C3%A9vrier%2075%20route%20des%20Pontets%2074320%20S%C3%A9vrier",
+    "google_maps_type": "recherche",
+    "verification_equipement": "Le site officiel annonce des pistes haute pression et un portique automatique ; la gamme Aqua Factory est décrite comme équipée de brosses anti-rayures."
+  },
+  {
+    "id": 1003,
+    "kind": "other",
+    "nom": "Lavage du Marais",
+    "adresse": "248 route d’Argonay, 74370 Pringy (Annecy), France",
+    "latitude": 45.94351,
+    "longitude": 6.1272,
+    "wash_type": "hybride_a_revalider",
+    "wash_type_label": "Portique hybride · programme à revalider",
+    "sources": [
+      "https://mapcarta.com/fr/N5299349657",
+      "https://www.google.com/maps?cid=7719916174820893604"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Position OpenStreetMap de la station.",
+    "position_source": "osm",
+    "google_maps_url": "https://www.google.com/maps?cid=7719916174820893604",
+    "google_maps_type": "fiche",
+    "verification_equipement": "La station est active et localisée. Une ancienne preuve publique montrait un programme sans brosse sur un portique WashTec également équipé de rouleaux ; la disponibilité actuelle de ce cycle reste à revalider.",
+    "note": "Classée dans “Autres” tant que le programme sans contact actuel n’est pas reconfirmé."
+  },
+  {
+    "id": 1004,
+    "kind": "other",
+    "nom": "Lavage New Wave",
+    "adresse": "691 rue de la Pointe de Cupoire, 74300 Cluses, France",
+    "latitude": 46.07361,
+    "longitude": 6.56968,
+    "wash_type": "haute_pression",
+    "wash_type_label": "Haute pression libre-service",
+    "sources": [
+      "https://lavage-auto-proximite.fr/haute-savoie/cluses/station-de-lavage-rue-de-la-pointe-de-cupoire-80716",
+      "https://www.pagesjaunes.fr/annuaire/cluses-74/lavage-nettoyage-de-vehicules"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Position OpenStreetMap de la station.",
+    "position_source": "osm",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Lavage%20New%20Wave%20691%20rue%20de%20la%20Pointe%20de%20Cupoire%2074300%20Cluses",
+    "google_maps_type": "recherche",
+    "verification_equipement": "La fiche OpenStreetMap agrégée par lavage-auto-proximite indique une station haute pression libre-service ; PagesJaunes recense également l’établissement comme station de lavage."
+  },
+  {
+    "id": 1005,
+    "kind": "other",
+    "nom": "Lavage des Fontaines Marnaz",
+    "adresse": "Rue de la Rosée, 74460 Marnaz, France",
+    "latitude": 46.06296,
+    "longitude": 6.54081,
+    "wash_type": "rouleaux_haute_pression",
+    "wash_type_label": "Portiques à brosses + haute pression",
+    "sources": [
+      "https://fr.linkedin.com/company/lavage-des-fontaines",
+      "https://autolavage.net/74/marnaz/lavage-des-fontaines-97k"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Point OpenStreetMap d’une station Lavage des Fontaines à proximité immédiate de Marnaz ; entrée exacte à revalider.",
+    "position_source": "osm",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Lavage%20des%20Fontaines%20Rue%20de%20la%20Ros%C3%A9e%2074460%20Marnaz",
+    "google_maps_type": "recherche",
+    "verification_equipement": "L’exploitant décrit deux portiques WashTec SoftCare Pro 2 et trois pistes haute pression."
+  },
+  {
+    "id": 1006,
+    "kind": "other",
+    "nom": "MSLB Entreprise Lavage Auto",
+    "adresse": "70 route Nationale 6, 73190 Saint-Jeoire-Prieuré, France",
+    "latitude": 45.5392937,
+    "longitude": 5.9890656,
+    "wash_type": "hybride",
+    "wash_type_label": "Portique hybride + haute pression",
+    "sources": [
+      "https://www.station-lavage-saint-jeoire-prieure.fr/lavage-automobile/"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Coordonnées du site au 70 RN6 ; entrée du portique à confirmer sur place.",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=MSLB%20Entreprise%20Lavage%20Auto%2070%20route%20Nationale%206%2073190%20Saint-Jeoire-Prieur%C3%A9",
+    "google_maps_type": "recherche",
+    "verification_equipement": "Le site officiel décrit un portique 2-en-1 combinant un mécanisme haute pression sans contact et un lavage traditionnel à brosses Foam Tech, ainsi que des pistes haute pression."
+  },
+  {
+    "id": 1007,
+    "kind": "other",
+    "nom": "Station de Lavage Caen Louvigny",
+    "adresse": "Rue Edouard Boubat, 14111 Louvigny, France",
+    "latitude": 49.157917,
+    "longitude": -0.391901,
+    "wash_type": "rouleaux_haute_pression",
+    "wash_type_label": "Rouleaux SoftCare + haute pression",
+    "sources": [
+      "https://www.station-lavage-caen-louvigny.fr/"
+    ],
+    "date_controle": "2026-09-29",
+    "precision_position": "Position issue du recensement précédent de la station ; l’adresse actuelle officielle est rue Edouard Boubat.",
+    "google_maps_url": "https://www.google.com/maps/search/?api=1&query=Station%20de%20Lavage%20Caen%20Louvigny%20Rue%20Edouard%20Boubat%2014111%20Louvigny",
+    "google_maps_type": "recherche",
+    "verification_equipement": "Le site officiel annonce un portique automatique équipé de brosses SoftCare et des pistes de lavage haute pression."
+  }
+]

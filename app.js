@@ -1,19 +1,35 @@
 /* global L */
 const FRANCE_CENTER = [46.603354, 1.888334];
-const map = L.map('map', { zoomControl: false }).setView(FRANCE_CENTER, 6);
+const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(FRANCE_CENTER, 6);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
 }).addTo(map);
 
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+
 const state = {
-  stations: [], visibleStations: [], markers: new Map(),
-  userPosition: null, userMarker: null, route: null, routeLine: null, routeCasing: null,
-  selectedStationId: null, locating: false
+  stations: [],
+  visibleStations: [],
+  markers: new Map(),
+  userPosition: null,
+  userMarker: null,
+  route: null,
+  routeLine: null,
+  routeCasing: null,
+  selectedStationId: null,
+  locating: false,
+  quickFilter: 'contactless',
+  searchQuery: '',
+  sort: 'smart',
+  favorites: loadFavorites(),
+  osmKeys: new Set(),
+  osmFetchKeys: new Set(),
+  osmLoading: false
 };
 
-const $ = (selector) => document.querySelector(selector);
 const stationList = $('#stationList');
 const count = $('#stationCount');
 const routeFilter = $('#routeFilter');
@@ -23,8 +39,44 @@ const statusBox = $('#mapStatus');
 const selectionCard = $('#selectionCard');
 const citySuggestionCache = new Map();
 
-const markerIcon = L.divIcon({ className: '', html: '<div class="station-marker"></div>', iconSize: [34, 34], iconAnchor: [10, 32], popupAnchor: [7, -29] });
-const userIcon = L.divIcon({ className: '', html: '<div class="user-marker"></div>', iconSize: [17, 17], iconAnchor: [8, 8] });
+function isContactless(station) {
+  return station.kind === 'contactless';
+}
+
+function isOsmOther(station) {
+  return station.kind === 'osm';
+}
+
+function markerIconFor(station) {
+  const markerClass = isContactless(station) ? '' : isOsmOther(station) ? ' osm' : ' other';
+  return L.divIcon({
+    className: '',
+    html: `<div class="station-marker${markerClass}"></div>`,
+    iconSize: [34, 38],
+    iconAnchor: [12, 34]
+  });
+}
+const userIcon = L.divIcon({
+  className: '',
+  html: '<div class="user-marker"></div>',
+  iconSize: [17, 17],
+  iconAnchor: [8, 8]
+});
+
+function loadFavorites() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('wash2-favorites') || '[]');
+    return new Set(Array.isArray(raw) ? raw.map(Number).filter(Number.isFinite) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFavorites() {
+  localStorage.setItem('wash2-favorites', JSON.stringify([...state.favorites]));
+  const favoriteCount = $('#favoriteCount');
+  if (favoriteCount) favoriteCount.textContent = state.favorites.size;
+}
 
 function showStatus(message, duration = 2200) {
   statusBox.textContent = message;
@@ -33,8 +85,50 @@ function showStatus(message, duration = 2200) {
   if (duration) showStatus.timer = setTimeout(() => statusBox.classList.remove('visible'), duration);
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]);
+function escapeHtml(value = '') {
+  return String(value).replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  })[char]);
+}
+
+function normalizeText(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('fr')
+    .replace(/[’']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isValidStation(station) {
+  return Number.isFinite(Number(station.id))
+    && station.nom
+    && station.adresse
+    && Number.isFinite(Number(station.latitude))
+    && Number.isFinite(Number(station.longitude));
+}
+
+function isPrecise(station) {
+  return station.google_maps_type === 'fiche'
+    || station.position_source === 'osm'
+    || normalizeText(station.precision_position).includes('fiche google maps');
+}
+
+function accuracyLabel(station) {
+  const precision = station.precision_position || '';
+  if (station.position_source === 'osm') return 'Position OpenStreetMap · donnée communautaire';
+  if (station.google_maps_type === 'fiche' || normalizeText(precision).includes('fiche google maps')) return 'Position recoupée avec Google Maps';
+  if (normalizeText(precision).includes('geocodee')) return 'Adresse géocodée · entrée à vérifier';
+  return precision || 'Emplacement à confirmer avant un long détour';
+}
+
+function washTypeLabel(station) {
+  return station.wash_type_label || (isContactless(station) ? 'Sans contact' : 'Technologie non renseignée');
+}
+
+function sourceUrl(station) {
+  return Array.isArray(station.sources) && station.sources.length ? station.sources[0] : null;
 }
 
 function haversine(a, b) {
@@ -47,12 +141,14 @@ function haversine(a, b) {
   return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-// Distance station-segment en projection équirectangulaire locale, suffisante à l'échelle d'un corridor routier.
 function pointSegmentDistanceKm(point, start, end) {
   const lat0 = point[0] * Math.PI / 180;
   const project = ([lat, lon]) => [lon * 111.32 * Math.cos(lat0), lat * 110.574];
-  const p = project(point), a = project(start), b = project(end);
-  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const p = project(point);
+  const a = project(start);
+  const b = project(end);
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
   const length2 = dx * dx + dy * dy;
   if (!length2) return Math.hypot(p[0] - a[0], p[1] - a[1]);
   const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2));
@@ -62,13 +158,16 @@ function pointSegmentDistanceKm(point, start, end) {
 function distanceToRoute(station, route) {
   const point = [station.latitude, station.longitude];
   let best = Infinity;
-  for (let i = 1; i < route.length; i += 1) best = Math.min(best, pointSegmentDistanceKm(point, route[i - 1], route[i]));
+  for (let i = 1; i < route.length; i += 1) {
+    best = Math.min(best, pointSegmentDistanceKm(point, route[i - 1], route[i]));
+  }
   return best;
 }
 
 function distanceLabel(km) {
   if (!Number.isFinite(km)) return '';
-  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} km`;
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(km < 10 ? 1 : 0).replace('.', ',')} km`;
 }
 
 function stationDistance(station) {
@@ -77,24 +176,236 @@ function stationDistance(station) {
   return Infinity;
 }
 
-// A business profile is distinct from a name/address search fallback.
-function mapsLabel(station) {
-  return station.google_maps_type === 'fiche' ? 'Google Maps ↗' : 'Recherche Maps ↗';
-}
 function stationMapsUrl(station) {
-  return station.google_maps_url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(station.nom + ' ' + station.adresse)}`;
+  return station.google_maps_url
+    || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${station.nom} ${station.adresse}`)}`;
 }
+
 function stationLinks(station) {
-  const precision = station.precision_position || '';
-  const positionLabel = precision.includes('fiche Google') ? 'Position Google Maps' : precision.includes('géocodée') ? 'Adresse géocodée · entrée à vérifier' : 'Emplacement à confirmer';
-  return `<div class="station-links"><a href="${escapeHtml(stationMapsUrl(station))}" target="_blank" rel="noopener noreferrer" aria-label="${station.google_maps_type === 'fiche' ? 'Ouvrir la fiche Google Maps' : 'Rechercher la station sur Google Maps'}">${mapsLabel(station)}</a><a href="${escapeHtml(station.sources[0])}" target="_blank" rel="noopener noreferrer" aria-label="Consulter la source du lavage sans contact">Source ↗</a></div><small class="position-note" title="${escapeHtml(precision)}">${positionLabel}</small>${station.note ? `<small class="station-notice">${escapeHtml(station.note)}</small>` : ''}`;
+  const source = sourceUrl(station);
+  const mapsLabel = station.google_maps_type === 'fiche' ? 'Google Maps ↗' : 'Rechercher sur Maps ↗';
+  const sourceLink = source
+    ? `<a href="${escapeHtml(source)}" target="_blank" rel="noopener noreferrer">Source ↗</a>`
+    : '<span></span>';
+  return `
+    <div class="station-links">
+      <a href="${escapeHtml(stationMapsUrl(station))}" target="_blank" rel="noopener noreferrer">${mapsLabel}</a>
+      ${sourceLink}
+    </div>
+    <small class="position-note">${escapeHtml(accuracyLabel(station))}</small>
+    ${station.note ? `<small class="station-notice">${escapeHtml(station.note)}</small>` : ''}
+  `;
+}
+
+function matchesSearch(station) {
+  if (!state.searchQuery) return true;
+  const haystack = normalizeText(`${station.nom} ${station.adresse} ${washTypeLabel(station)} ${station.operator || ''} ${station.brand || ''}`);
+  const tokens = normalizeText(state.searchQuery).split(' ').filter(Boolean);
+  return tokens.every((token) => haystack.includes(token));
+}
+
+function matchesQuickFilter(station) {
+  if (state.quickFilter === 'contactless') return isContactless(station);
+  if (state.quickFilter === 'other') return !isContactless(station);
+  if (state.quickFilter === 'precise') return isPrecise(station);
+  if (state.quickFilter === 'favorites') return state.favorites.has(station.id);
+  return true;
+}
+
+function sortStations(stations) {
+  const compareName = (a, b) => a.nom.localeCompare(b.nom, 'fr');
+  if (state.sort === 'name') return stations.sort(compareName);
+  if (state.sort === 'distance') {
+    return stations.sort((a, b) => {
+      if (Number.isFinite(a.distance) || Number.isFinite(b.distance)) return a.distance - b.distance || compareName(a, b);
+      return compareName(a, b);
+    });
+  }
+  return stations.sort((a, b) => {
+    if (state.userPosition || (state.route && routeFilter.checked)) return a.distance - b.distance || compareName(a, b);
+    if (state.searchQuery) {
+      const q = normalizeText(state.searchQuery);
+      const aName = normalizeText(a.nom).startsWith(q) ? 0 : 1;
+      const bName = normalizeText(b.nom).startsWith(q) ? 0 : 1;
+      if (aName !== bName) return aName - bName;
+    }
+    if (isContactless(a) !== isContactless(b)) return isContactless(a) ? -1 : 1;
+    return compareName(a, b);
+  });
+}
+
+function stationBadges(station) {
+  const badges = [isContactless(station)
+    ? '<span class="mini-badge">Sans contact vérifié</span>'
+    : `<span class="mini-badge other">${escapeHtml(washTypeLabel(station))}</span>`];
+  if (isOsmOther(station)) badges.push('<span class="mini-badge">OpenStreetMap</span>');
+  if (isPrecise(station)) badges.push('<span class="mini-badge precise">Position précise</span>');
+  return badges.join('');
+}
+
+function renderStations() {
+  const maxDistance = Number(distanceRange.value);
+  let stations = state.stations
+    .filter(matchesSearch)
+    .filter(matchesQuickFilter)
+    .map((station) => ({ ...station, distance: stationDistance(station) }));
+
+  if (state.route && routeFilter.checked) {
+    stations = stations.filter((station) => station.distance <= maxDistance);
+  }
+
+  sortStations(stations);
+  state.visibleStations = stations;
+
+  const visibleIds = new Set(stations.map((station) => station.id));
+  for (const [id, marker] of state.markers) {
+    const visible = visibleIds.has(id);
+    if (visible && !map.hasLayer(marker)) marker.addTo(map);
+    if (!visible && map.hasLayer(marker)) marker.removeFrom(map);
+  }
+
+  count.textContent = stations.length;
+  const label = `${stations.length} station${stations.length > 1 ? 's' : ''}`;
+  $('#mobileCount').textContent = label;
+  $('#mobileSheetCount').textContent = `${label} affichée${stations.length > 1 ? 's' : ''}`;
+  const visibleContactless = stations.filter(isContactless).length;
+  const visibleOther = stations.length - visibleContactless;
+  $('#mapPillText').textContent = `${label} · ${visibleContactless} sans contact · ${visibleOther} autres`;
+
+  const context = [];
+  if (state.searchQuery) context.push(`Recherche : “${state.searchQuery}”`);
+  if (state.quickFilter === 'contactless') context.push('Sans contact vérifié');
+  if (state.quickFilter === 'other') context.push('Autres lavages');
+  if (state.quickFilter === 'precise') context.push('Positions précises uniquement');
+  if (state.quickFilter === 'favorites') context.push('Favoris uniquement');
+  if (state.route && routeFilter.checked) context.push(`À ≤ ${distanceRange.value} km du tracé`);
+  $('#activeContext').hidden = context.length === 0;
+  $('#activeContext').textContent = context.join(' · ');
+
+  stationList.innerHTML = stations.length
+    ? stations.map((station) => `
+      <article class="station-item ${isContactless(station) ? '' : 'kind-other'} ${state.selectedStationId === station.id ? 'active' : ''}" data-id="${station.id}" tabindex="0" role="button" aria-label="Voir ${escapeHtml(station.nom)}">
+        <span class="station-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16M6 17l1-7h10l1 7M8 10l1-3h6l1 3M7 14h.01M17 14h.01"/></svg></span>
+        <span class="station-copy">
+          <strong>${escapeHtml(station.nom)}</strong>
+          <small>${escapeHtml(station.adresse)}</small>
+          <span class="station-meta">${stationBadges(station)}</span>
+        </span>
+        <span class="station-distance">${Number.isFinite(station.distance) ? distanceLabel(station.distance) : ''}</span>
+        <button class="item-favorite ${state.favorites.has(station.id) ? 'active' : ''}" type="button" data-favorite-id="${station.id}" aria-label="${state.favorites.has(station.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${state.favorites.has(station.id) ? '★' : '☆'}</button>
+      </article>
+    `).join('')
+    : '<div class="empty-state">Aucune station ne correspond à ces critères.<br>Essaie d’effacer un filtre ou d’élargir le corridor.</div>';
+
+  stationList.querySelectorAll('.station-item').forEach((item) => {
+    item.addEventListener('click', (event) => {
+      if (event.target.closest('[data-favorite-id]')) return;
+      focusStation(Number(item.dataset.id));
+    });
+    item.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        focusStation(Number(item.dataset.id));
+      }
+    });
+  });
+
+  stationList.querySelectorAll('[data-favorite-id]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleFavorite(Number(button.dataset.favoriteId));
+    });
+  });
+
+  if (state.selectedStationId && !visibleIds.has(state.selectedStationId)) clearStationSelection();
+  else if (state.selectedStationId) selectStation(state.selectedStationId, false);
+
+  updateRouteNearbySummary();
+}
+
+function updateCounters() {
+  const contactless = state.stations.filter(isContactless).length;
+  const other = state.stations.length - contactless;
+  $('#heroStationCount').textContent = state.stations.length;
+  $('#contactlessCount').textContent = contactless;
+  $('#otherCount').textContent = other;
+  const favoriteCount = $('#favoriteCount');
+  if (favoriteCount) favoriteCount.textContent = state.favorites.size;
+}
+
+function toggleFavorite(id) {
+  if (state.favorites.has(id)) state.favorites.delete(id);
+  else state.favorites.add(id);
+  saveFavorites();
+  renderStations();
+  if (state.selectedStationId === id) updateSelectionFavorite(id);
+}
+
+function updateSelectionFavorite(id) {
+  const favorite = state.favorites.has(id);
+  $('#selectionFavorite').classList.toggle('active', favorite);
+  $('#selectionFavorite').textContent = favorite ? '★' : '☆';
+  $('#selectionFavorite').setAttribute('aria-label', favorite ? 'Retirer des favoris' : 'Ajouter aux favoris');
+}
+
+function selectStation(id, scrollToItem = true) {
+  const station = state.stations.find((item) => item.id === id);
+  if (!station) return;
+
+  state.selectedStationId = id;
+  map.closePopup();
+  for (const [markerId, marker] of state.markers) {
+    marker.getElement()?.classList.toggle('is-selected', markerId === id);
+  }
+  $$('.station-item').forEach((item) => item.classList.toggle('active', Number(item.dataset.id) === id));
+
+  const selectedItem = stationList.querySelector(`[data-id="${id}"]`);
+  if (scrollToItem && selectedItem) selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const distance = stationDistance(station);
+  const contactless = isContactless(station);
+  $('#selectionName').textContent = station.nom;
+  $('#selectionAddress').textContent = station.adresse;
+  const selectionTag = $('#selectionTag');
+  selectionTag.textContent = contactless ? 'Sans contact documenté' : isOsmOther(station) ? 'Autre station · OpenStreetMap' : 'Autre station documentée';
+  selectionTag.classList.toggle('other', !contactless);
+  $('#selectionBadges').innerHTML = contactless
+    ? `<span class="selection-badge good">Programme sans contact documenté</span><span class="selection-badge ${isPrecise(station) ? 'good' : ''}">${isPrecise(station) ? 'Position précise' : 'Position à confirmer'}</span>`
+    : `<span class="selection-badge other">${escapeHtml(washTypeLabel(station))}</span><span class="selection-badge ${isPrecise(station) ? 'good' : ''}">${isPrecise(station) ? 'Position précise' : 'Position à confirmer'}</span>`;
+  $('#selectionVerification').innerHTML = station.verification_equipement
+    ? `<div class="verification-note"><strong>${contactless ? 'Vérification équipement' : 'Informations disponibles'} :</strong> ${escapeHtml(station.verification_equipement)}</div>`
+    : '';
+  $('#selectionLinks').innerHTML = stationLinks(station);
+  $('#selectionDistance').textContent = Number.isFinite(distance)
+    ? `${distanceLabel(distance)}${state.route && routeFilter.checked ? ' du tracé' : ''}`
+    : isOsmOther(station) ? 'Donnée OpenStreetMap' : `Contrôlé le ${station.date_controle || '—'}`;
+  $('#selectionDirections').dataset.stationId = station.id;
+  updateSelectionFavorite(id);
+  selectionCard.hidden = false;
+}
+
+function clearStationSelection() {
+  state.selectedStationId = null;
+  for (const marker of state.markers.values()) marker.getElement()?.classList.remove('is-selected');
+  $$('.station-item').forEach((item) => item.classList.remove('active'));
+  selectionCard.hidden = true;
+  map.closePopup();
+}
+
+function focusStation(id) {
+  const station = state.stations.find((item) => item.id === id);
+  const marker = state.markers.get(id);
+  if (!station || !marker) return;
+  selectStation(id);
+  map.flyTo([station.latitude, station.longitude], Math.max(map.getZoom(), 14), { duration: .75 });
+  if (window.innerWidth <= 820) closeMobilePanel();
 }
 
 function openDirections(station) {
   if (!station) return;
   const destination = `${station.latitude},${station.longitude}`;
   $('#directionsStationName').textContent = station.nom;
-  $('#googleMapsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(station.nom + ' ' + station.adresse)}&travelmode=driving${station.google_place_id ? '&destination_place_id=' + encodeURIComponent(station.google_place_id) : ''}`;
+  $('#googleMapsLink').href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${station.nom} ${station.adresse}`)}&travelmode=driving${station.google_place_id ? `&destination_place_id=${encodeURIComponent(station.google_place_id)}` : ''}`;
   $('#wazeLink').href = `https://www.waze.com/ul?ll=${encodeURIComponent(destination)}&navigate=yes`;
   $('#appleMapsLink').href = `https://maps.apple.com/?daddr=${encodeURIComponent(destination)}&dirflg=d`;
   const dialog = $('#directionsDialog');
@@ -108,121 +419,213 @@ function closeDirections() {
   else dialog.removeAttribute('open');
 }
 
-function renderStations() {
-  const maxDistance = Number(distanceRange.value);
-  let stations = state.stations.map((station) => ({ ...station, distance: stationDistance(station) }));
-  if (state.route && routeFilter.checked) stations = stations.filter((station) => station.distance <= maxDistance);
-  if (state.userPosition || (state.route && routeFilter.checked)) stations.sort((a, b) => a.distance - b.distance);
-  else stations.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
-  state.visibleStations = stations;
-
-  for (const [id, marker] of state.markers) {
-    const visible = stations.some((station) => station.id === id);
-    if (visible && !map.hasLayer(marker)) marker.addTo(map);
-    if (!visible && map.hasLayer(marker)) marker.removeFrom(map);
-  }
-
-  count.textContent = stations.length;
-  const stationCountLabel = `${stations.length} station${stations.length > 1 ? 's' : ''}`;
-  $('#mobileCount').textContent = stationCountLabel;
-  $('#mobileSheetCount').textContent = `${stationCountLabel} documentée${stations.length > 1 ? 's' : ''}`;
-  stationList.innerHTML = stations.length ? stations.map((station) => `
-    <button class="station-item" type="button" data-id="${station.id}">
-      <span class="station-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16M6 17l1-7h10l1 7M8 10l1-3h6l1 3M7 14h.01M17 14h.01"/></svg></span>
-      <span class="station-copy"><strong>${escapeHtml(station.nom)}</strong><small>${escapeHtml(station.adresse)}</small></span>
-      <span class="station-distance">${Number.isFinite(station.distance) ? distanceLabel(station.distance) : ''}</span>
-    </button>`).join('') : '<div class="empty-state">Aucune station dans ce corridor.<br>Élargissez la distance maximale.</div>';
-
-  stationList.querySelectorAll('.station-item').forEach((item) => item.addEventListener('click', () => focusStation(Number(item.dataset.id))));
-  if (state.selectedStationId && stations.some((station) => station.id === state.selectedStationId)) {
-    selectStation(state.selectedStationId, false);
-  } else if (state.selectedStationId) {
-    clearStationSelection();
-  }
-  updateRouteNearbySummary();
+function addStationMarker(station) {
+  if (state.markers.has(station.id)) return;
+  const marker = L.marker([station.latitude, station.longitude], {
+    icon: markerIconFor(station),
+    title: station.nom
+  });
+  marker.on('click', () => selectStation(station.id));
+  marker.addTo(map);
+  state.markers.set(station.id, marker);
 }
 
-function updateRouteNearbySummary() {
-  const nearby = $('#routeNearby');
-  if (!nearby) return;
-  if (!routeFilter.checked) {
-    nearby.textContent = 'Filtre de proximité désactivé';
+function normalizedStation(station, kind) {
+  return {
+    ...station,
+    kind: station.kind || kind,
+    id: Number(station.id),
+    latitude: Number(station.latitude),
+    longitude: Number(station.longitude)
+  };
+}
+
+function osmWashType(tags = {}) {
+  if (tags.touchless_wash === 'yes') return 'Sans contact déclaré sur OpenStreetMap';
+  if (tags.self_service === 'yes' && tags.high_pressure_washer === 'yes') return 'Haute pression libre-service';
+  if (tags.automated === 'yes' && tags.self_service === 'yes') return 'Automatique + libre-service';
+  if (tags.automated === 'yes') return 'Lavage automatique';
+  if (tags.self_service === 'yes') return 'Libre-service';
+  if (tags.high_pressure_washer === 'yes') return 'Haute pression';
+  return 'Technologie non renseignée';
+}
+
+function osmAddress(tags = {}) {
+  const street = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ');
+  const city = [tags['addr:postcode'], tags['addr:city']].filter(Boolean).join(' ');
+  return [street, city].filter(Boolean).join(', ') || tags['addr:place'] || 'Position OpenStreetMap';
+}
+
+function osmStationId(element) {
+  const offset = element.type === 'node' ? 1 : element.type === 'way' ? 2 : 3;
+  return -(Number(element.id) * 10 + offset);
+}
+
+function osmCoordinate(element) {
+  const lat = Number(element.lat ?? element.center?.lat);
+  const lon = Number(element.lon ?? element.center?.lon);
+  return Number.isFinite(lat) && Number.isFinite(lon) ? [lat, lon] : null;
+}
+
+function isNearKnownStation(lat, lon, maxKm = 0.12) {
+  return state.stations.some((station) => !isOsmOther(station)
+    && haversine([lat, lon], [station.latitude, station.longitude]) <= maxKm);
+}
+
+function osmVerificationText(tags = {}) {
+  const details = [];
+  if (tags.automated === 'yes') details.push('automatique');
+  if (tags.self_service === 'yes') details.push('libre-service');
+  if (tags.high_pressure_washer === 'yes') details.push('haute pression');
+  if (tags.touchless_wash === 'yes') details.push('sans contact déclaré');
+  if (tags.amenity === 'fuel' && tags.car_wash === 'yes') details.push('lavage intégré à une station-service');
+  if (tags.brand) details.push(`marque : ${tags.brand}`);
+  const suffix = details.length ? ` Tags disponibles : ${details.join(', ')}.` : '';
+  return `Station issue des données communautaires OpenStreetMap. La technologie et la disponibilité ne sont pas vérifiées par Wash 2.0.${suffix}`;
+}
+
+async function fetchOverpass(query) {
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter'
+  ];
+  let lastError;
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: new URLSearchParams({ data: query })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Overpass indisponible');
+}
+
+function overpassRadiusForZoom(zoom) {
+  if (zoom >= 13) return 12000;
+  if (zoom >= 11) return 22000;
+  if (zoom >= 9) return 40000;
+  return 60000;
+}
+
+async function loadOtherStationsNearby({ silent = false } = {}) {
+  if (!['other', 'all'].includes(state.quickFilter) || state.osmLoading) return;
+  const zoom = map.getZoom();
+  if (!state.userPosition && zoom < 8.5) {
+    if (!silent) showStatus('Zoome sur une zone ou utilise « Autour de moi » pour charger les autres stations.', 3200);
     return;
   }
-  const total = state.visibleStations.length;
-  nearby.textContent = `${total} station${total > 1 ? 's' : ''} à moins de ${distanceRange.value} km du tracé`;
-}
 
-function setRouteDistance(value) {
-  distanceRange.value = String(value);
-  $('#distanceOutput').textContent = `${value} km`;
-  document.querySelectorAll('.distance-presets button').forEach((button) => {
-    button.classList.toggle('active', Number(button.dataset.distance) === Number(value));
-  });
-  renderStations();
-}
+  const center = state.userPosition && zoom < 10
+    ? { lat: state.userPosition[0], lng: state.userPosition[1] }
+    : map.getCenter();
+  const radius = overpassRadiusForZoom(zoom);
+  const fetchKey = `${Math.round(center.lat * 20) / 20}:${Math.round(center.lng * 20) / 20}:${radius}`;
+  if (state.osmFetchKeys.has(fetchKey)) return;
 
-function selectStation(id, scrollToItem = true) {
-  const station = state.stations.find((item) => item.id === id);
-  if (!station) return;
-  map.closePopup();
-  state.selectedStationId = id;
-  for (const [markerId, marker] of state.markers) {
-    marker.getElement()?.classList.toggle('is-selected', markerId === id);
+  state.osmLoading = true;
+  if (!silent) showStatus('Chargement des autres stations autour de la carte…', 0);
+  const query = `[out:json][timeout:20];(nwr["amenity"="car_wash"](around:${radius},${center.lat.toFixed(6)},${center.lng.toFixed(6)});nwr["amenity"="fuel"]["car_wash"="yes"](around:${radius},${center.lat.toFixed(6)},${center.lng.toFixed(6)}););out center tags;`;
+
+  try {
+    const data = await fetchOverpass(query);
+    let added = 0;
+    for (const element of (data.elements || []).slice(0, 500)) {
+      const tags = element.tags || {};
+      if (tags.access === 'private' || tags.access === 'no') continue;
+      const coord = osmCoordinate(element);
+      if (!coord) continue;
+      const [lat, lon] = coord;
+      const osmKey = `${element.type}/${element.id}`;
+      if (state.osmKeys.has(osmKey)) continue;
+      state.osmKeys.add(osmKey);
+      if (isNearKnownStation(lat, lon)) continue;
+
+      const id = osmStationId(element);
+      if (state.stations.some((station) => station.id === id)) continue;
+      const name = tags.name || tags.brand || tags.operator || 'Station de lavage';
+      const station = {
+        id,
+        kind: 'osm',
+        osm_key: osmKey,
+        nom: name,
+        adresse: osmAddress(tags),
+        latitude: lat,
+        longitude: lon,
+        operator: tags.operator || '',
+        brand: tags.brand || '',
+        wash_type_label: osmWashType(tags),
+        position_source: 'osm',
+        precision_position: 'Position OpenStreetMap · donnée communautaire.',
+        sources: [`https://www.openstreetmap.org/${element.type}/${element.id}`],
+        google_maps_url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lon}`)}`,
+        google_maps_type: 'recherche',
+        verification_equipement: osmVerificationText(tags)
+      };
+      state.stations.push(station);
+      addStationMarker(station);
+      added += 1;
+    }
+    state.osmFetchKeys.add(fetchKey);
+    updateCounters();
+    renderStations();
+    if (!silent) showStatus(`${added} autre${added > 1 ? 's' : ''} station${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} autour de la carte.`);
+  } catch (error) {
+    console.warn('Wash 2.0: chargement OpenStreetMap impossible', error);
+    if (!silent) showStatus('Les stations documentées restent disponibles. OpenStreetMap est temporairement indisponible.', 3600);
+  } finally {
+    state.osmLoading = false;
   }
-  document.querySelectorAll('.station-item').forEach((item) => item.classList.toggle('active', Number(item.dataset.id) === id));
-  const selectedItem = stationList.querySelector(`[data-id="${id}"]`);
-  if (scrollToItem && selectedItem) selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-  const distance = stationDistance(station);
-  $('#selectionName').textContent = station.nom;
-  $('#selectionAddress').textContent = station.adresse;
-  $('#selectionLinks').innerHTML = stationLinks(station);
-  $('#selectionDistance').textContent = Number.isFinite(distance)
-    ? `${distanceLabel(distance)}${routeFilter.checked ? ' du trajet' : ''}`
-    : '100 % sans contact';
-  $('#selectionDirections').dataset.stationId = station.id;
-  selectionCard.hidden = false;
-}
-
-function clearStationSelection() {
-  state.selectedStationId = null;
-  for (const marker of state.markers.values()) marker.getElement()?.classList.remove('is-selected');
-  document.querySelectorAll('.station-item').forEach((item) => item.classList.remove('active'));
-  selectionCard.hidden = true;
-  map.closePopup();
-}
-
-function focusStation(id) {
-  const station = state.stations.find((item) => item.id === id);
-  const marker = state.markers.get(id);
-  if (!station || !marker) return;
-  selectStation(id);
-  map.flyTo([station.latitude, station.longitude], Math.max(map.getZoom(), 14), { duration: .8 });
-  // One shared card avoids overlapping Leaflet popups and clipped close buttons.
-  if (window.innerWidth <= 820) closeMobilePanel();
 }
 
 async function loadStations() {
   try {
-    // La liste évolue sans nouvelle compilation ; interroger le JSON actuel
-    // évite de conserver une ancienne réponse en cache après un déploiement Pages.
-    const response = await fetch('stations.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.stations = await response.json();
-    const heroStationCount = document.querySelector('#heroStationCount');
-    if (heroStationCount) heroStationCount.textContent = state.stations.length;
-    state.stations.forEach((station) => {
-      const marker = L.marker([station.latitude, station.longitude], { icon: markerIcon, title: station.nom });
-      marker.on('click', () => selectStation(station.id));
-      marker.addTo(map);
-      state.markers.set(station.id, marker);
+    const [strictResult, otherResult] = await Promise.allSettled([
+      fetch('stations.json', { cache: 'no-store' }),
+      fetch('stations-autres.json', { cache: 'no-store' })
+    ]);
+
+    if (strictResult.status !== 'fulfilled' || !strictResult.value.ok) {
+      throw new Error('Impossible de charger stations.json');
+    }
+
+    const strictRaw = await strictResult.value.json();
+    let otherRaw = [];
+    if (otherResult.status === 'fulfilled' && otherResult.value.ok) {
+      otherRaw = await otherResult.value.json();
+    } else {
+      console.warn('Wash 2.0: stations-autres.json indisponible, la base sans contact reste utilisable.');
+    }
+
+    const allRaw = [
+      ...strictRaw.map((station) => normalizedStation(station, 'contactless')),
+      ...otherRaw.map((station) => normalizedStation(station, 'other'))
+    ].filter(isValidStation);
+
+    const ids = new Set();
+    state.stations = allRaw.filter((station) => {
+      if (ids.has(station.id)) return false;
+      ids.add(station.id);
+      return true;
     });
+
+    state.stations.forEach(addStationMarker);
+    updateCounters();
     renderStations();
     statusBox.classList.remove('visible');
+
+    if (allRaw.length !== state.stations.length) {
+      console.warn(`Wash 2.0: ${allRaw.length - state.stations.length} entrée(s) dupliquée(s) ignorée(s).`);
+    }
   } catch (error) {
-    showStatus('Impossible de charger stations.json. Lancez le site via un serveur local.', 0);
-    stationList.innerHTML = '<div class="empty-state">Erreur de chargement de la base.</div>';
+    console.error(error);
+    showStatus('Impossible de charger la base de stations.', 0);
+    stationList.innerHTML = '<div class="empty-state">Erreur de chargement de stations.json.<br>Le site doit être servi en HTTPS ou via un serveur local.</div>';
   }
 }
 
@@ -231,9 +634,12 @@ function applyUserPosition(coords, cached = false) {
   if (state.userMarker) state.userMarker.remove();
   state.userMarker = L.marker(state.userPosition, { icon: userIcon, zIndexOffset: 1000 })
     .addTo(map)
-    .bindPopup(cached ? 'Votre dernière position connue' : 'Votre position');
+    .bindTooltip(cached ? 'Dernière position connue' : 'Votre position', { direction: 'top' });
+  state.sort = 'distance';
+  $('#sortSelect').value = 'distance';
   map.setView(state.userPosition, 11);
   renderStations();
+  if (['other', 'all'].includes(state.quickFilter)) loadOtherStationsNearby({ silent: true });
   if (window.innerWidth <= 820) closeMobilePanel();
   showStatus(cached ? 'Dernière position affichée · actualisation…' : 'Position trouvée');
 }
@@ -252,14 +658,16 @@ function locateUser() {
 
   let cachedPosition = null;
   try {
-    const saved = JSON.parse(localStorage.getItem('sans-contact-position'));
-    if (saved && Date.now() - saved.timestamp < 600000) {
+    const saved = JSON.parse(localStorage.getItem('wash2-position'));
+    if (saved && Date.now() - saved.timestamp < 10 * 60 * 1000) {
       cachedPosition = saved;
       applyUserPosition(saved, true);
     }
-  } catch { localStorage.removeItem('sans-contact-position'); }
+  } catch {
+    localStorage.removeItem('wash2-position');
+  }
 
-  if (!cachedPosition) showStatus('Localisation rapide…', 0);
+  if (!cachedPosition) showStatus('Localisation…', 0);
   setLocationBusy(true);
 
   navigator.geolocation.getCurrentPosition(({ coords }) => {
@@ -269,17 +677,17 @@ function locateUser() {
       accuracy: coords.accuracy,
       timestamp: Date.now()
     };
-    localStorage.setItem('sans-contact-position', JSON.stringify(position));
+    localStorage.setItem('wash2-position', JSON.stringify(position));
     applyUserPosition(position);
     setLocationBusy(false);
   }, (error) => {
     setLocationBusy(false);
     if (cachedPosition) return showStatus('Dernière position utilisée');
     const message = error.code === 1
-      ? 'Autorisez la localisation pour afficher les stations proches.'
-      : 'Position indisponible. Réessayez près d’une fenêtre.';
+      ? 'Autorise la localisation pour afficher les stations proches.'
+      : 'Position indisponible. Réessaie dans quelques secondes.';
     showStatus(message, 4200);
-  }, { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 });
+  }, { enableHighAccuracy: false, timeout: 7000, maximumAge: 600000 });
 }
 
 async function geocode(query) {
@@ -294,9 +702,7 @@ async function geocode(query) {
 function selectedPlace(input) {
   const lat = Number(input.dataset.lat);
   const lon = Number(input.dataset.lon);
-  if (Number.isFinite(lat) && Number.isFinite(lon)) {
-    return { lat, lon, label: input.dataset.label || input.value };
-  }
+  if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon, label: input.dataset.label || input.value };
   return null;
 }
 
@@ -305,7 +711,7 @@ async function resolvePlace(input) {
 }
 
 async function searchCities(query, signal) {
-  const key = query.trim().toLocaleLowerCase('fr');
+  const key = normalizeText(query);
   if (citySuggestionCache.has(key)) return citySuggestionCache.get(key);
   const url = `https://data.geopf.fr/geocodage/search?q=${encodeURIComponent(query)}&limit=7&type=municipality&autocomplete=1`;
   const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
@@ -318,8 +724,7 @@ async function searchCities(query, signal) {
       name: properties.city || properties.name || properties.label,
       label: properties.label || properties.city || properties.name,
       context: [properties.postcode, properties.context].filter(Boolean).join(' · '),
-      lat: Number(lat),
-      lon: Number(lon)
+      lat: Number(lat), lon: Number(lon)
     };
   }).filter((city) => city.name && Number.isFinite(city.lat) && Number.isFinite(city.lon));
   citySuggestionCache.set(key, cities);
@@ -363,21 +768,19 @@ function setupCityAutocomplete(input, list) {
   const render = (cities) => {
     suggestions = cities;
     activeIndex = -1;
-    if (!cities.length) {
-      list.innerHTML = '<div class="suggestion-message">Aucune ville trouvée</div>';
-    } else {
-      list.innerHTML = cities.map((city, index) => `
+    list.innerHTML = cities.length
+      ? cities.map((city, index) => `
         <button class="suggestion-item" id="${list.id}-option-${index}" type="button" role="option" data-index="${index}">
           <span class="suggestion-pin" aria-hidden="true">⌖</span>
           <span class="suggestion-copy"><strong>${escapeHtml(city.name)}</strong><small>${escapeHtml(city.context || 'France')}</small></span>
-        </button>`).join('');
-      list.querySelectorAll('.suggestion-item').forEach((item) => {
-        item.addEventListener('pointerdown', (event) => event.preventDefault());
-        item.addEventListener('click', () => choose(Number(item.dataset.index)));
-      });
-    }
+        </button>`).join('')
+      : '<div class="suggestion-message">Aucune ville trouvée</div>';
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
+    list.querySelectorAll('.suggestion-item').forEach((item) => {
+      item.addEventListener('pointerdown', (event) => event.preventDefault());
+      item.addEventListener('click', () => choose(Number(item.dataset.index)));
+    });
   };
 
   input.addEventListener('input', () => {
@@ -395,7 +798,7 @@ function setupCityAutocomplete(input, list) {
       } catch (error) {
         if (error.name !== 'AbortError') close();
       }
-    }, 280);
+    }, 260);
   });
 
   input.addEventListener('keydown', (event) => {
@@ -405,8 +808,28 @@ function setupCityAutocomplete(input, list) {
     else if (event.key === 'Enter' && activeIndex >= 0) { event.preventDefault(); choose(activeIndex); }
     else if (event.key === 'Escape') close();
   });
+
   input.addEventListener('blur', () => setTimeout(close, 120));
-  input.addEventListener('focus', () => { if (suggestions.length && input.value.trim().length >= 2) render(suggestions); });
+}
+
+function updateRouteNearbySummary() {
+  const nearby = $('#routeNearby');
+  if (!nearby || !state.route) return;
+  if (!routeFilter.checked) {
+    nearby.textContent = 'Filtre de proximité désactivé';
+    return;
+  }
+  const total = state.visibleStations.length;
+  nearby.textContent = `${total} station${total > 1 ? 's' : ''} à ≤ ${distanceRange.value} km du tracé`;
+}
+
+function setRouteDistance(value) {
+  distanceRange.value = String(value);
+  $('#distanceOutput').textContent = `${value} km`;
+  $$('.distance-presets button').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.distance) === Number(value));
+  });
+  renderStations();
 }
 
 async function calculateRoute(event) {
@@ -417,36 +840,49 @@ async function calculateRoute(event) {
   routeSummary.className = 'route-summary';
   routeSummary.textContent = 'Recherche des adresses…';
   button.disabled = true;
+
   try {
-    // Une ville choisie dans les suggestions possède déjà ses coordonnées.
-    // La saisie libre reste possible et passe alors par le géocodeur existant.
     const start = await resolvePlace($('#startInput'));
     const end = await resolvePlace($('#endInput'));
     routeSummary.textContent = 'Calcul du trajet…';
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?alternatives=false&steps=false&overview=full&geometries=geojson`;
     const response = await fetch(url);
+    if (!response.ok) throw new Error('Le service d’itinéraire ne répond pas');
     const data = await response.json();
     if (data.code !== 'Ok' || !data.routes?.length) throw new Error('Aucun itinéraire routier trouvé');
+
     const best = data.routes[0];
     state.route = best.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
     if (state.routeLine) state.routeLine.remove();
     if (state.routeCasing) state.routeCasing.remove();
+
     state.routeCasing = L.polyline(state.route, {
-      color: '#ffffff', weight: 10, opacity: .95, lineJoin: 'round', lineCap: 'round', interactive: false
+      color: '#fff', weight: 10, opacity: .95, lineJoin: 'round', lineCap: 'round', interactive: false
     }).addTo(map);
     state.routeLine = L.polyline(state.route, {
-      color: '#1268e8', weight: 6, opacity: 1, lineJoin: 'round', lineCap: 'round', interactive: false
+      color: '#0d73f6', weight: 6, opacity: 1, lineJoin: 'round', lineCap: 'round', interactive: false
     }).addTo(map);
     state.routeCasing.bringToFront();
     state.routeLine.bringToFront();
-    map.fitBounds(state.routeLine.getBounds(), { padding: window.innerWidth <= 820 ? [26, 26] : [42, 42] });
+    map.fitBounds(state.routeLine.getBounds(), { padding: window.innerWidth <= 820 ? [24, 24] : [42, 42] });
+
     routeFilter.disabled = false;
     distanceRange.disabled = false;
-    document.querySelectorAll('.distance-presets button').forEach((preset) => { preset.disabled = false; });
+    $$('.distance-presets button').forEach((preset) => { preset.disabled = false; });
     routeFilter.checked = true;
     $('#clearRoute').hidden = false;
-    routeSummary.innerHTML = `<span class="route-mode">Trajet le plus rapide</span><br><strong>${distanceLabel(best.distance / 1000)} · ${Math.round(best.duration / 60)} min</strong><br>${escapeHtml(startQuery)} → ${escapeHtml(endQuery)}<span class="route-nearby" id="routeNearby"></span>`;
+    $('#routeFilterBlock').hidden = false;
+    state.sort = 'distance';
+    $('#sortSelect').value = 'distance';
+
+    routeSummary.innerHTML = `
+      <span class="route-mode">Trajet calculé</span><br>
+      <strong>${distanceLabel(best.distance / 1000)} · ${Math.round(best.duration / 60)} min</strong><br>
+      ${escapeHtml(startQuery)} → ${escapeHtml(endQuery)}
+      <span class="route-nearby" id="routeNearby"></span>
+    `;
     renderStations();
+
     if (window.innerWidth <= 820) {
       closeMobilePanel();
       showStatus(`${state.visibleStations.length} station${state.visibleStations.length > 1 ? 's' : ''} près du trajet`);
@@ -454,44 +890,47 @@ async function calculateRoute(event) {
   } catch (error) {
     routeSummary.className = 'route-summary error';
     routeSummary.textContent = error.message || 'Impossible de calculer cet itinéraire.';
-  } finally { button.disabled = false; }
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function clearRoute() {
   if (state.routeLine) state.routeLine.remove();
   if (state.routeCasing) state.routeCasing.remove();
-  state.route = null; state.routeLine = null; state.routeCasing = null;
-  routeFilter.checked = false; routeFilter.disabled = true; distanceRange.disabled = true;
-  document.querySelectorAll('.distance-presets button').forEach((preset) => { preset.disabled = true; });
-  routeSummary.textContent = ''; $('#clearRoute').hidden = true;
+  state.route = null;
+  state.routeLine = null;
+  state.routeCasing = null;
+  routeFilter.checked = false;
+  routeFilter.disabled = true;
+  distanceRange.disabled = true;
+  $$('.distance-presets button').forEach((preset) => { preset.disabled = true; });
+  routeSummary.textContent = '';
+  $('#clearRoute').hidden = true;
+  $('#routeFilterBlock').hidden = true;
   renderStations();
-  if (state.stations.length) map.setView(FRANCE_CENTER, 6);
+  if (state.userPosition) map.setView(state.userPosition, 11);
+  else map.setView(FRANCE_CENTER, 6);
 }
 
-$('#locateButton').addEventListener('click', locateUser);
-$('#locatePrimary').addEventListener('click', locateUser);
-$('#routeForm').addEventListener('submit', calculateRoute);
-setupCityAutocomplete($('#startInput'), $('#startSuggestions'));
-setupCityAutocomplete($('#endInput'), $('#endSuggestions'));
-$('#clearRoute').addEventListener('click', clearRoute);
-routeFilter.addEventListener('change', renderStations);
-distanceRange.addEventListener('input', () => setRouteDistance(distanceRange.value));
-document.querySelectorAll('.distance-presets button').forEach((button) => {
-  button.addEventListener('click', () => setRouteDistance(button.dataset.distance));
-});
-$('.brand').addEventListener('click', (event) => { event.preventDefault(); map.setView(FRANCE_CENTER, 6); });
-$('#aboutButton').addEventListener('click', () => $('#aboutDialog').showModal());
-$('#closeDialog').addEventListener('click', () => $('#aboutDialog').close());
-$('#selectionClose').addEventListener('click', clearStationSelection);
-$('#selectionDirections').addEventListener('click', () => {
-  openDirections(state.stations.find((station) => station.id === Number($('#selectionDirections').dataset.stationId)));
-});
-$('#closeDirectionsDialog').addEventListener('click', closeDirections);
-$('#directionsDialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeDirections(); });
-document.addEventListener('click', (event) => {
-  const trigger = event.target.closest('[data-route-station]');
-  if (trigger) openDirections(state.stations.find((station) => station.id === Number(trigger.dataset.routeStation)));
-});
+function setQuickFilter(filter) {
+  state.quickFilter = filter;
+  $$('.filter-chip').forEach((button) => button.classList.toggle('active', button.dataset.filter === filter));
+  renderStations();
+  if (filter === 'other' || filter === 'all') loadOtherStationsNearby();
+}
+
+function setSearch(value) {
+  state.searchQuery = value.trim();
+  $('#clearSearch').hidden = !state.searchQuery;
+  renderStations();
+
+  if (state.searchQuery && state.visibleStations.length === 1) {
+    const station = state.visibleStations[0];
+    map.flyTo([station.latitude, station.longitude], 13, { duration: .5 });
+  }
+}
+
 const mobilePanel = $('.panel');
 const mobilePanelButton = $('#mobilePanelButton');
 const panelBackdrop = $('#panelBackdrop');
@@ -502,7 +941,7 @@ function openMobilePanel() {
   panelBackdrop.classList.add('visible');
   mobilePanelButton.setAttribute('aria-expanded', 'true');
   document.body.classList.add('panel-open');
-  setTimeout(() => $('#mobilePanelClose').focus(), 280);
+  setTimeout(() => mobilePanelClose.focus(), 280);
 }
 
 function closeMobilePanel(returnFocus = false) {
@@ -513,18 +952,46 @@ function closeMobilePanel(returnFocus = false) {
   if (returnFocus) mobilePanelButton.focus();
 }
 
+$('#locateButton').addEventListener('click', locateUser);
+$('#locatePrimary').addEventListener('click', locateUser);
+$('#routeForm').addEventListener('submit', calculateRoute);
+setupCityAutocomplete($('#startInput'), $('#startSuggestions'));
+setupCityAutocomplete($('#endInput'), $('#endSuggestions'));
+$('#clearRoute').addEventListener('click', clearRoute);
+routeFilter.addEventListener('change', renderStations);
+distanceRange.addEventListener('input', () => setRouteDistance(distanceRange.value));
+$$('.distance-presets button').forEach((button) => button.addEventListener('click', () => setRouteDistance(button.dataset.distance)));
+$$('.filter-chip').forEach((button) => button.addEventListener('click', () => setQuickFilter(button.dataset.filter)));
+$('#sortSelect').addEventListener('change', (event) => { state.sort = event.target.value; renderStations(); });
+$('#stationSearch').addEventListener('input', (event) => setSearch(event.target.value));
+$('#clearSearch').addEventListener('click', () => { $('#stationSearch').value = ''; setSearch(''); $('#stationSearch').focus(); });
+$('#brandHome').addEventListener('click', (event) => { event.preventDefault(); clearStationSelection(); map.setView(FRANCE_CENTER, 6); });
+$('#aboutButton').addEventListener('click', () => $('#aboutDialog').showModal());
+$('#closeDialog').addEventListener('click', () => $('#aboutDialog').close());
+$('#selectionClose').addEventListener('click', clearStationSelection);
+$('#selectionFavorite').addEventListener('click', () => { if (state.selectedStationId) toggleFavorite(state.selectedStationId); });
+$('#selectionDirections').addEventListener('click', () => {
+  openDirections(state.stations.find((station) => station.id === Number($('#selectionDirections').dataset.stationId)));
+});
+$('#closeDirectionsDialog').addEventListener('click', closeDirections);
+$('#directionsDialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeDirections(); });
 mobilePanelButton.addEventListener('click', openMobilePanel);
-// pointerup répond immédiatement au toucher sur iOS ; click reste le repli clavier/souris.
-mobilePanelClose.addEventListener('pointerup', (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-  closeMobilePanel(true);
-});
-mobilePanelClose.addEventListener('click', (event) => {
-  event.preventDefault();
-  closeMobilePanel(true);
-});
+mobilePanelClose.addEventListener('pointerup', (event) => { event.preventDefault(); event.stopPropagation(); closeMobilePanel(true); });
+mobilePanelClose.addEventListener('click', (event) => { event.preventDefault(); closeMobilePanel(true); });
 panelBackdrop.addEventListener('click', () => closeMobilePanel(true));
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMobilePanel(); });
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (window.innerWidth <= 820 && mobilePanel.classList.contains('open')) closeMobilePanel();
+    else clearStationSelection();
+  }
+});
 
+let osmMoveTimer;
+map.on('moveend', () => {
+  if (!['other', 'all'].includes(state.quickFilter) || map.getZoom() < 8.5) return;
+  clearTimeout(osmMoveTimer);
+  osmMoveTimer = setTimeout(() => loadOtherStationsNearby({ silent: true }), 550);
+});
+
+saveFavorites();
 loadStations();

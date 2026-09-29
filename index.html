@@ -2,26 +2,38 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#071827">
-  <meta name="description" content="Carte indépendante des stations de lavage automobile automatique 100 % sans contact en France.">
-  <title>Sans Contact — stations de lavage en France</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111d">
+  <meta name="description" content="Wash 2.0 — trouvez les lavages auto sans contact documentés et les autres stations autour de vous.">
+  <title>Wash 2.0 — Trouver le bon lavage auto</title>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQ3ynJb+8eoEpsnXxVJzZ1nYmxL7d9w=" crossorigin="">
-  <link rel="stylesheet" href="styles.css?v=regional-20260923-2">
+  <link rel="stylesheet" href="styles.css?v=wash2-other-20260929">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="#" aria-label="Retour à la carte de France">
+      <a class="brand" href="#" id="brandHome" aria-label="Revenir à la carte nationale">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 28 28"><path d="M14 2.5C10.2 7.4 6.5 11.8 6.5 17a7.5 7.5 0 0 0 15 0c0-5.2-3.7-9.6-7.5-14.5Z"/><path d="M10.5 17.5c.5 2.2 1.8 3.4 4 3.7"/></svg>
         </span>
-        <span><strong>Sans Contact</strong><small>Lavage auto sans brosses</small></span>
+        <span class="brand-copy">
+          <strong>Wash <b>2.0</b></strong>
+          <small>Le bon lavage, clairement.</small>
+        </span>
       </a>
+
+      <div class="topbar-center">
+        <label class="global-search" for="stationSearch">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+          <input id="stationSearch" type="search" autocomplete="off" placeholder="Station, ville, code postal…">
+          <button id="clearSearch" type="button" aria-label="Effacer la recherche" hidden>×</button>
+        </label>
+      </div>
+
       <div class="header-actions">
-        <span class="verified"><i></i> Sources contrôlées · 23 sept. 2026</span>
+        <span class="verified" title="La base conserve une source publique pour chaque station"><i></i> Base documentée</span>
         <button class="icon-button" id="locateButton" type="button" title="Me localiser" aria-label="Me localiser">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
         </button>
@@ -29,94 +41,128 @@
     </header>
 
     <main class="workspace">
-      <aside class="panel" id="mobilePanel" aria-label="Recherche et itinéraire">
+      <aside class="panel" id="mobilePanel" aria-label="Recherche et stations">
         <div class="mobile-sheet-header">
           <span class="sheet-handle" aria-hidden="true"></span>
           <div>
-            <strong>Recherche & itinéraire</strong>
-            <small id="mobileSheetCount">Stations documentées</small>
+            <strong>Wash 2.0</strong>
+            <small id="mobileSheetCount">Chargement…</small>
           </div>
-          <button class="mobile-sheet-close" id="mobilePanelClose" type="button" aria-label="Fermer et revenir à la carte"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          <button class="mobile-sheet-close" id="mobilePanelClose" type="button" aria-label="Fermer le panneau">
+            <svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
         </div>
+
         <div class="panel-scroll">
-          <section class="intro">
-            <span class="eyebrow"><i></i> Carte indépendante</span>
-            <h1>Trouvez un lavage<br><em>vraiment</em> sans contact.</h1>
-            <p>Des robots haute pression automatiques, sans rouleaux ni brosses.</p>
-            <div class="hero-facts" aria-label="Informations sur la carte">
-              <span><strong id="heroStationCount">44</strong> stations documentées</span>
-              <span><strong>100 %</strong> sans brosses</span>
+          <section class="hero">
+            <span class="eyebrow"><i></i> Base indépendante</span>
+            <h1>Trouve le <em>bon lavage</em>, sans confondre les technologies.</h1>
+            <p>Sans-contact documenté en priorité, plus les autres stations : rouleaux, haute pression, hybrides et données OpenStreetMap autour de toi.</p>
+            <div class="hero-stats">
+              <div><strong id="heroStationCount">—</strong><span>stations chargées</span></div>
+              <div><strong id="contactlessCount">—</strong><span>sans contact</span></div>
+              <div><strong id="otherCount">—</strong><span>autres lavages</span></div>
             </div>
           </section>
 
           <button class="locate-primary" id="locatePrimary" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-            Autour de moi
+            <span class="locate-primary-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></span>
+            <span><strong>Autour de moi</strong><small>Trier les stations par distance</small></span>
+            <b>→</b>
           </button>
+
+          <section class="quick-filters" aria-label="Filtres rapides">
+            <button class="filter-chip active" id="filterContactless" type="button" data-filter="contactless">Sans contact</button>
+            <button class="filter-chip" id="filterOther" type="button" data-filter="other">Autres</button>
+            <button class="filter-chip" id="filterAll" type="button" data-filter="all">Toutes</button>
+            <button class="filter-chip" id="filterPrecise" type="button" data-filter="precise">Position précise</button>
+            <button class="filter-chip" id="filterFavorites" type="button" data-filter="favorites">★ <span id="favoriteCount">0</span></button>
+          </section>
 
           <section class="route-card">
             <div class="section-heading">
-              <span>Planifier un trajet</span>
+              <div>
+                <span class="section-kicker">Sur la route</span>
+                <strong>Planifier un trajet</strong>
+              </div>
               <button id="clearRoute" type="button" class="text-button" hidden>Effacer</button>
             </div>
+
             <form id="routeForm">
-              <div class="autocomplete-field">
-                <label class="route-field">
-                  <span class="route-dot start"></span>
-                  <input id="startInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="startSuggestions" aria-expanded="false" required placeholder="Ville ou adresse de départ">
-                </label>
-                <div class="suggestions" id="startSuggestions" role="listbox" aria-label="Suggestions de villes de départ" hidden></div>
-              </div>
-              <div class="route-line"></div>
-              <div class="autocomplete-field">
-                <label class="route-field">
-                  <span class="route-dot end"></span>
-                  <input id="endInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="endSuggestions" aria-expanded="false" required placeholder="Ville ou adresse d’arrivée">
-                </label>
-                <div class="suggestions" id="endSuggestions" role="listbox" aria-label="Suggestions de villes d’arrivée" hidden></div>
+              <div class="route-inputs">
+                <div class="autocomplete-field">
+                  <label class="route-field">
+                    <span class="route-dot start"></span>
+                    <input id="startInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="startSuggestions" aria-expanded="false" required placeholder="Départ">
+                  </label>
+                  <div class="suggestions" id="startSuggestions" role="listbox" aria-label="Suggestions de départ" hidden></div>
+                </div>
+                <span class="route-line" aria-hidden="true"></span>
+                <div class="autocomplete-field">
+                  <label class="route-field">
+                    <span class="route-dot end"></span>
+                    <input id="endInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="endSuggestions" aria-expanded="false" required placeholder="Arrivée">
+                  </label>
+                  <div class="suggestions" id="endSuggestions" role="listbox" aria-label="Suggestions d’arrivée" hidden></div>
+                </div>
               </div>
               <button class="route-button" type="submit">
-                Calculer l’itinéraire
+                <span>Afficher les stations sur ma route</span>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
               </button>
             </form>
-            <div id="routeSummary" class="route-summary" aria-live="polite"></div>
-          </section>
 
-          <section class="filter-card">
-            <div class="toggle-row">
-              <div>
-                <strong>Stations sur ma route</strong>
-                <small>Filtrer près du tracé</small>
+            <div id="routeSummary" class="route-summary" aria-live="polite"></div>
+
+            <div class="route-filter" id="routeFilterBlock" hidden>
+              <div class="toggle-row">
+                <div>
+                  <strong>Limiter au trajet</strong>
+                  <small id="routeNearby">Stations proches du tracé</small>
+                </div>
+                <label class="switch">
+                  <input id="routeFilter" type="checkbox" disabled>
+                  <span></span>
+                </label>
               </div>
-              <label class="switch">
-                <input id="routeFilter" type="checkbox" disabled>
-                <span></span>
+              <label class="range-wrap" for="distanceRange">
+                <span>Distance max. au tracé</span>
+                <output id="distanceOutput">15 km</output>
               </label>
-            </div>
-            <label class="range-wrap" for="distanceRange">
-              <span>Écart maximal au tracé</span>
-              <output id="distanceOutput">15 km</output>
-            </label>
-            <input id="distanceRange" type="range" min="5" max="25" step="5" value="15" disabled>
-            <div class="distance-presets" aria-label="Choisir la distance au trajet">
-              <button type="button" data-distance="5" disabled>5 km</button>
-              <button type="button" data-distance="10" disabled>10 km</button>
-              <button type="button" data-distance="15" class="active" disabled>15 km</button>
-              <button type="button" data-distance="20" disabled>20 km</button>
+              <input id="distanceRange" type="range" min="5" max="30" step="5" value="15" disabled>
+              <div class="distance-presets" aria-label="Choisir la distance au trajet">
+                <button type="button" data-distance="5" disabled>5</button>
+                <button type="button" data-distance="10" disabled>10</button>
+                <button type="button" data-distance="15" class="active" disabled>15</button>
+                <button type="button" data-distance="20" disabled>20</button>
+                <button type="button" data-distance="30" disabled>30 km</button>
+              </div>
             </div>
           </section>
 
           <section class="results-section">
-            <div class="section-heading">
-              <span>Stations</span>
+            <div class="section-heading results-heading">
+              <div>
+                <span class="section-kicker">Résultats</span>
+                <strong>Stations</strong>
+              </div>
+              <label class="sort-control">
+                <span class="sr-only">Trier les stations</span>
+                <select id="sortSelect" aria-label="Trier les stations">
+                  <option value="smart">Pertinence</option>
+                  <option value="distance">Distance</option>
+                  <option value="name">Nom</option>
+                </select>
+              </label>
               <span class="count" id="stationCount">—</span>
             </div>
+            <div id="activeContext" class="active-context" hidden></div>
             <div id="stationList" class="station-list" aria-live="polite"></div>
           </section>
         </div>
+
         <footer>
-          <span>© OpenStreetMap</span>
+          <span>OpenStreetMap · OSRM</span>
           <button id="aboutButton" class="text-button" type="button">Méthode & sources</button>
         </footer>
       </aside>
@@ -125,23 +171,34 @@
 
       <section class="map-wrap" aria-label="Carte des stations">
         <div id="map"></div>
-        <div class="map-legend" aria-hidden="true"><i></i><span>Station documentée</span></div>
+
+        <div class="map-top-controls">
+          <div class="map-pill"><i></i><span id="mapPillText">Stations documentées</span></div>
+        </div>
+
         <div class="map-status" id="mapStatus" role="status">Chargement des stations…</div>
+
         <article class="selection-card" id="selectionCard" aria-live="polite" hidden>
-          <button class="selection-close" id="selectionClose" type="button" aria-label="Fermer la fiche de la station"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-          <span class="selection-tag">Station sélectionnée</span>
+          <button class="selection-close" id="selectionClose" type="button" aria-label="Fermer la fiche de la station">
+            <svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+          <div class="selection-topline">
+            <span class="selection-tag" id="selectionTag">Station documentée</span>
+            <button class="favorite-button" id="selectionFavorite" type="button" aria-label="Ajouter aux favoris" title="Favori">☆</button>
+          </div>
           <strong id="selectionName"></strong>
           <p id="selectionAddress"></p>
+          <div class="selection-badges" id="selectionBadges"></div>
+          <div id="selectionVerification"></div>
           <div id="selectionLinks"></div>
           <div class="selection-actions">
-            <span id="selectionDistance">100 % sans contact</span>
-            <button id="selectionDirections" class="directions-trigger" type="button">Itinéraire →</button>
+            <span id="selectionDistance">Station documentée</span>
+            <button id="selectionDirections" class="directions-trigger" type="button">Itinéraire <b>→</b></button>
           </div>
         </article>
+
         <button class="mobile-panel-button" id="mobilePanelButton" type="button" aria-controls="mobilePanel" aria-expanded="false">
-          <span class="mobile-button-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 4.9 12l4.1 4M8 11h6M11 8v6"/></svg>
-          </span>
+          <span class="mobile-button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 4.9 12l4.1 4M8 11h6M11 8v6"/></svg></span>
           <span class="mobile-button-copy"><strong>Rechercher</strong><small id="mobileCount">Stations</small></span>
           <svg class="mobile-button-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>
         </button>
@@ -150,18 +207,19 @@
   </div>
 
   <dialog id="aboutDialog">
-    <button class="dialog-close" id="closeDialog" aria-label="Fermer"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <button class="dialog-close" id="closeDialog" aria-label="Fermer"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <span class="eyebrow">Transparence</span>
-    <h2>Méthode & limites</h2>
-    <p>La carte recense uniquement des équipements automatiques dont le fonctionnement sans contact a pu être confirmé publiquement. Une station peut aussi proposer, à côté, des rouleaux ou des pistes manuelles.</p>
-    <p>Il n’existe pas de registre national officiel de cette technologie : la liste est donc une base documentée, pas une garantie d’exhaustivité absolue. Avant un long détour, vérifiez l’accès et la disponibilité auprès de l’exploitant.</p>
-    <p>Le filtre mesure la distance géométrique entre la station et le tracé routier. Il ne calcule pas le détour routier aller-retour réel.</p>
-    <a href="SOURCES.md" target="_blank" rel="noopener">Consulter le registre des sources →</a>
+    <h2>Deux couches, deux niveaux de confiance.</h2>
+    <p><strong>Sans contact</strong> : base stricte de stations pour lesquelles un programme automatique sans brosses a été documenté publiquement. Certaines stations sont hybrides : vérifie toujours le programme choisi sur place.</p>
+    <p><strong>Autres lavages</strong> : stations à rouleaux, haute pression, hybrides ou points OpenStreetMap. Les données OSM sont communautaires et la technologie n’est affichée que lorsqu’elle est renseignée.</p>
+    <p>Une station OpenStreetMap n’est jamais considérée automatiquement comme « sans contact vérifié ». La couche stricte reste séparée.</p>
+    <p>Le filtre d’itinéraire mesure la distance géométrique entre une station et le tracé OSRM. Il ne correspond pas encore au détour routier aller-retour réel.</p>
+    <div class="dialog-links"><a href="SOURCES.md" target="_blank" rel="noopener">Sources sans contact →</a><a href="SOURCES-AUTRES.md" target="_blank" rel="noopener">Sources autres lavages →</a></div>
   </dialog>
 
   <dialog id="directionsDialog" class="directions-dialog">
-    <button class="dialog-close" id="closeDirectionsDialog" type="button" aria-label="Fermer"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-    <span class="eyebrow">Ouvrir l’itinéraire</span>
+    <button class="dialog-close" id="closeDirectionsDialog" type="button" aria-label="Fermer"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <span class="eyebrow">Navigation</span>
     <h2 id="directionsStationName">Choisir une application</h2>
     <p>Le trajet vers cette station s’ouvrira dans l’application choisie.</p>
     <div class="navigation-apps">
@@ -178,6 +236,6 @@
   </dialog>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="app.js?v=research-20260923-3" defer></script>
+  <script src="app.js?v=wash2-other-20260929" defer></script>
 </body>
 </html>
