@@ -18,6 +18,6 @@ Chaque entrée conserve le nom, l’adresse, les coordonnées, les services et l
 
 Les 1 084 centres étaient marqués actifs par le localisateur à la collecte. Le statut horaire « ouvert/fermé » n’est pas figé dans la carte : consulter la fiche officielle avant le déplacement. Les horaires et la disponibilité peuvent changer.
 
-Les centres sont classés dans **Autres** et accessibles par le filtre **Total Wash**, jamais automatiquement dans **Sans contact**. Une piste haute pression manuelle ne constitue pas une preuve de portique automatique sans brosses. Les services non renseignés ne sont pas inventés. Les prestations sont conservées telles que déclarées par le réseau, y compris le lavage à la main et les services intérieurs.
+Depuis le 30 septembre 2026, les centres sont répartis par services documentés : **Rouleaux**, **Haute pression manuelle**, **Lavage à la main** ou **Type à confirmer**. Total Wash reste une enseigne, sans filtre de catégorie dédié. Aucun centre n’est automatiquement classé en **Sans contact automatique**. Une piste haute pression manuelle ne constitue pas une preuve de portique automatique sans brosses. Les services non renseignés ne sont pas inventés. Les prestations sont conservées telles que déclarées par le réseau, y compris le lavage à la main et les services intérieurs.
 
 Il s’agit d’un instantané du localisateur officiel, pas d’une garantie que tous les établissements physiques du réseau y sont correctement recensés. Le chargement de ce fichier est indépendant d’Overpass/OpenStreetMap.

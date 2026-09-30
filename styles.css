@@ -76,7 +76,19 @@ button { cursor: pointer; }
 .locate-primary b { font-size: 18px; }
 .locate-primary:disabled { opacity: .7; cursor: wait; }
 
-.quick-filters { display: flex; gap: 7px; margin: 14px 0 0; overflow-x: auto; scrollbar-width: none; }
+.quick-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 0; }
+.wash-methods { margin-top: 20px; }
+.wash-methods h2 { font-size: 16px; margin: 0; }
+.wash-methods .filter-chip { white-space: normal; min-height: 42px; text-align: left; }
+.wash-methods .method { grid-column: 1 / -1; border-radius: 12px; padding: 11px 12px; }
+.method strong { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.method small { display: block; margin-top: 3px; font-weight: 400; color: #526477; font-size: 11px; }
+.method-help { font-size: 11px; color: #526477; line-height: 1.5; margin: 10px 0; }
+.secondary-filters { display: flex; gap: 8px; }
+.brand-copy strong { font-size: 16px; }
+.filter-chip[data-filter="rollers"].active { background: #fff0dc; border-color: #b86b0b; color: #8b5007; }
+.filter-chip[data-filter="pressure"].active { background: #e3f5ef; border-color: #098777; color: #067061; }
+.filter-chip[data-filter="hand"].active { background: #f3eafa; border-color: #8851c8; color: #7640b5; }
 .quick-filters::-webkit-scrollbar { display: none; }
 .filter-chip { flex: 0 0 auto; min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: white; color: #526276; font-size: 10px; font-weight: 800; }
 .filter-chip.active { border-color: #b8d7ff; background: var(--blue-soft); color: #0758bb; }

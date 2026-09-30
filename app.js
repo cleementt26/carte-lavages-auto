@@ -21,7 +21,7 @@ const state = {
   routeCasing: null,
   selectedStationId: null,
   locating: false,
-  quickFilter: 'contactless',
+  quickFilter: 'all',
   searchQuery: '',
   sort: 'smart',
   favorites: loadFavorites(),
@@ -39,8 +39,34 @@ const statusBox = $('#mapStatus');
 const selectionCard = $('#selectionCard');
 const citySuggestionCache = new Map();
 
+const WASH_TYPES = {
+  contactless: { label: 'Sans contact automatique', color: '#0878ef' },
+  rollers: { label: 'Rouleaux', color: '#b86b0b' },
+  pressure: { label: 'Haute pression manuelle', color: '#098777' },
+  hand: { label: 'Lavage à la main', color: '#8851c8' },
+  unknown: { label: 'Type à confirmer', color: '#64748b' }
+};
+
+function stationTypes(station) {
+  const types = new Set();
+  if (station.kind === 'contactless') types.add('contactless');
+  const services = station.services || [];
+  if (services.includes('Rouleaux')) types.add('rollers');
+  if (services.includes('Haute pression')) types.add('pressure');
+  if (services.includes('Lavage à la main')) types.add('hand');
+  // Only documented equipment: neither "automatic" nor "hybrid" proves a brushless cycle.
+  if (station.wash_type === 'rouleaux_haute_pression') { types.add('rollers'); types.add('pressure'); }
+  if (station.wash_type === 'haute_pression') types.add('pressure');
+  if (station.id === 1003) types.add('rollers');
+  if (station.id === 1006) { types.add('rollers'); types.add('pressure'); }
+  const tags = station.osm_tags || {};
+  if (tags.high_pressure_washer === 'yes' && tags.self_service === 'yes') types.add('pressure');
+  if (tags.hand_wash === 'yes') types.add('hand');
+  return types.size ? [...types] : ['unknown'];
+}
+
 function isContactless(station) {
-  return station.kind === 'contactless';
+  return stationTypes(station).includes('contactless');
 }
 
 function isOsmOther(station) {
@@ -48,10 +74,10 @@ function isOsmOther(station) {
 }
 
 function markerIconFor(station) {
-  const markerClass = isContactless(station) ? '' : isOsmOther(station) ? ' osm' : ' other';
+  const type = stationTypes(station).includes(state.quickFilter) ? state.quickFilter : stationTypes(station)[0];
   return L.divIcon({
     className: '',
-    html: `<div class="station-marker${markerClass}"></div>`,
+    html: `<div class="station-marker" style="background:${WASH_TYPES[type].color}"></div>`,
     iconSize: [34, 38],
     iconAnchor: [12, 34]
   });
@@ -125,7 +151,7 @@ function accuracyLabel(station) {
 }
 
 function washTypeLabel(station) {
-  return station.wash_type_label || (isContactless(station) ? 'Sans contact' : 'Technologie non renseignée');
+  return stationTypes(station).map(type => WASH_TYPES[type].label).join(' + ');
 }
 
 function sourceUrl(station) {
@@ -206,9 +232,7 @@ function matchesSearch(station) {
 }
 
 function matchesQuickFilter(station) {
-  if (state.quickFilter === 'totalwash') return station.network === 'totalwash';
-  if (state.quickFilter === 'contactless') return isContactless(station);
-  if (state.quickFilter === 'other') return !isContactless(station);
+  if (WASH_TYPES[state.quickFilter]) return stationTypes(station).includes(state.quickFilter);
   if (state.quickFilter === 'precise') return isPrecise(station);
   if (state.quickFilter === 'favorites') return state.favorites.has(station.id);
   return true;
@@ -237,9 +261,7 @@ function sortStations(stations) {
 }
 
 function stationBadges(station) {
-  const badges = [isContactless(station)
-    ? '<span class="mini-badge">Sans contact vérifié</span>'
-    : `<span class="mini-badge other">${escapeHtml(washTypeLabel(station))}</span>`];
+  const badges = stationTypes(station).map(type => `<span class="mini-badge" style="color:${WASH_TYPES[type].color}">${WASH_TYPES[type].label}</span>`);
   if (isOsmOther(station)) badges.push('<span class="mini-badge">OpenStreetMap</span>');
   if (isPrecise(station)) badges.push('<span class="mini-badge precise">Position précise</span>');
   return badges.join('');
@@ -270,15 +292,11 @@ function renderStations() {
   const label = `${stations.length} station${stations.length > 1 ? 's' : ''}`;
   $('#mobileCount').textContent = label;
   $('#mobileSheetCount').textContent = `${label} affichée${stations.length > 1 ? 's' : ''}`;
-  const visibleContactless = stations.filter(isContactless).length;
-  const visibleOther = stations.length - visibleContactless;
-  $('#mapPillText').textContent = `${label} · ${visibleContactless} sans contact · ${visibleOther} autres`;
+  $('#mapPillText').textContent = `${label} · ${WASH_TYPES[state.quickFilter]?.label || 'Tous les types'}`;
 
   const context = [];
   if (state.searchQuery) context.push(`Recherche : “${state.searchQuery}”`);
-  if (state.quickFilter === 'contactless') context.push('Sans contact vérifié');
-  if (state.quickFilter === 'other') context.push('Autres lavages');
-  if (state.quickFilter === 'totalwash') context.push('Réseau Total Wash · source officielle');
+  if (WASH_TYPES[state.quickFilter]) context.push(WASH_TYPES[state.quickFilter].label);
   if (state.quickFilter === 'precise') context.push('Positions précises uniquement');
   if (state.quickFilter === 'favorites') context.push('Favoris uniquement');
   if (state.route && routeFilter.checked) context.push(`À ≤ ${distanceRange.value} km du tracé`);
@@ -331,7 +349,11 @@ function updateCounters() {
   const other = state.stations.length - contactless;
   $('#heroStationCount').textContent = state.stations.length;
   $('#contactlessCount').textContent = contactless;
-  $('#otherCount').textContent = other;
+  $('#otherCount').textContent = 4;
+  for (const type of Object.keys(WASH_TYPES)) {
+    const counter = document.querySelector(`[data-type-count="${type}"]`);
+    if (counter) counter.textContent = state.stations.filter(s => stationTypes(s).includes(type)).length;
+  }
   const favoriteCount = $('#favoriteCount');
   if (favoriteCount) favoriteCount.textContent = state.favorites.size;
 }
@@ -370,11 +392,9 @@ function selectStation(id, scrollToItem = true) {
   $('#selectionName').textContent = station.nom;
   $('#selectionAddress').textContent = station.adresse;
   const selectionTag = $('#selectionTag');
-  selectionTag.textContent = contactless ? 'Sans contact documenté' : isOsmOther(station) ? 'Autre station · OpenStreetMap' : 'Autre station documentée';
+  selectionTag.textContent = station.brand ? `Enseigne : ${station.brand}` : isOsmOther(station) ? 'Source : OpenStreetMap' : 'Station documentée';
   selectionTag.classList.toggle('other', !contactless);
-  $('#selectionBadges').innerHTML = contactless
-    ? `<span class="selection-badge good">Programme sans contact documenté</span><span class="selection-badge ${isPrecise(station) ? 'good' : ''}">${isPrecise(station) ? 'Position précise' : 'Position à confirmer'}</span>`
-    : `<span class="selection-badge other">${escapeHtml(washTypeLabel(station))}</span><span class="selection-badge ${isPrecise(station) ? 'good' : ''}">${isPrecise(station) ? 'Position précise' : 'Position à confirmer'}</span>`;
+  $('#selectionBadges').innerHTML = stationTypes(station).map(type => `<span class="selection-badge" style="color:${WASH_TYPES[type].color}">${WASH_TYPES[type].label}</span>`).join('');
   $('#selectionVerification').innerHTML = station.verification_equipement
     ? `<div class="verification-note"><strong>${contactless ? 'Vérification équipement' : 'Informations disponibles'} :</strong> ${escapeHtml(station.verification_equipement)}</div>`
     : '';
@@ -484,7 +504,7 @@ function osmVerificationText(tags = {}) {
   if (tags.amenity === 'fuel' && tags.car_wash === 'yes') details.push('lavage intégré à une station-service');
   if (tags.brand) details.push(`marque : ${tags.brand}`);
   const suffix = details.length ? ` Tags disponibles : ${details.join(', ')}.` : '';
-  return `Station issue des données communautaires OpenStreetMap. La technologie et la disponibilité ne sont pas vérifiées par Wash 2.0.${suffix}`;
+  return `Station issue des données communautaires OpenStreetMap. La technologie et la disponibilité ne sont pas vérifiées par Carte des lavages auto.${suffix}`;
 }
 
 async function fetchOverpass(query) {
@@ -517,7 +537,7 @@ function overpassRadiusForZoom(zoom) {
 }
 
 async function loadOtherStationsNearby({ silent = false } = {}) {
-  if (!['other', 'all'].includes(state.quickFilter) || state.osmLoading) return;
+  if (state.quickFilter === 'contactless' || state.osmLoading) return;
   const zoom = map.getZoom();
   if (!state.userPosition && zoom < 8.5) {
     if (!silent) showStatus('Zoome sur une zone ou utilise « Autour de moi » pour charger les autres stations.', 3200);
@@ -556,6 +576,7 @@ async function loadOtherStationsNearby({ silent = false } = {}) {
         id,
         kind: 'osm',
         osm_key: osmKey,
+        osm_tags: { self_service: tags.self_service, high_pressure_washer: tags.high_pressure_washer, hand_wash: tags.hand_wash },
         nom: name,
         adresse: osmAddress(tags),
         latitude: lat,
@@ -579,7 +600,7 @@ async function loadOtherStationsNearby({ silent = false } = {}) {
     renderStations();
     if (!silent) showStatus(`${added} autre${added > 1 ? 's' : ''} station${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} autour de la carte.`);
   } catch (error) {
-    console.warn('Wash 2.0: chargement OpenStreetMap impossible', error);
+    console.warn('Carte des lavages auto: chargement OpenStreetMap impossible', error);
     if (!silent) showStatus('Les stations documentées restent disponibles. OpenStreetMap est temporairement indisponible.', 3600);
   } finally {
     state.osmLoading = false;
@@ -603,7 +624,7 @@ async function loadStations() {
     if (otherResult.status === 'fulfilled' && otherResult.value.ok) {
       otherRaw = await otherResult.value.json();
     } else {
-      console.warn('Wash 2.0: stations-autres.json indisponible, la base sans contact reste utilisable.');
+      console.warn('Carte des lavages auto: stations-autres.json indisponible, la base sans contact reste utilisable.');
     }
 
     let totalRaw = [];
@@ -614,7 +635,7 @@ async function loadStations() {
         if (!Array.isArray(data)) throw new Error('Format Total Wash incorrect');
         totalRaw = data;
         totalLoaded = true;
-      } catch (error) { console.warn('Wash 2.0: base Total Wash indisponible', error); }
+      } catch (error) { console.warn('Carte des lavages auto: base Total Wash indisponible', error); }
     }
 
     const allRaw = [
@@ -637,7 +658,7 @@ async function loadStations() {
     if (!totalLoaded) showStatus('La base Total Wash n’a pas pu être chargée. Recharge la page pour réessayer.', 0);
 
     if (allRaw.length !== state.stations.length) {
-      console.warn(`Wash 2.0: ${allRaw.length - state.stations.length} entrée(s) dupliquée(s) ignorée(s).`);
+      console.warn(`Carte des lavages auto: ${allRaw.length - state.stations.length} entrée(s) dupliquée(s) ignorée(s).`);
     }
   } catch (error) {
     console.error(error);
@@ -656,7 +677,7 @@ function applyUserPosition(coords, cached = false) {
   $('#sortSelect').value = 'distance';
   map.setView(state.userPosition, 11);
   renderStations();
-  if (['other', 'all'].includes(state.quickFilter)) loadOtherStationsNearby({ silent: true });
+  if (state.quickFilter !== 'contactless') loadOtherStationsNearby({ silent: true });
   if (window.innerWidth <= 820) closeMobilePanel();
   showStatus(cached ? 'Dernière position affichée · actualisation…' : 'Position trouvée');
 }
@@ -933,8 +954,10 @@ function clearRoute() {
 function setQuickFilter(filter) {
   state.quickFilter = filter;
   $$('.filter-chip').forEach((button) => button.classList.toggle('active', button.dataset.filter === filter));
+  for (const station of state.stations) state.markers.get(station.id)?.setIcon(markerIconFor(station));
+  clearStationSelection();
   renderStations();
-  if (filter === 'other' || filter === 'all') loadOtherStationsNearby();
+  if (filter !== 'contactless') loadOtherStationsNearby();
 }
 
 function setSearch(value) {
@@ -1005,7 +1028,7 @@ document.addEventListener('keydown', (event) => {
 
 let osmMoveTimer;
 map.on('moveend', () => {
-  if (!['other', 'all'].includes(state.quickFilter) || map.getZoom() < 8.5) return;
+  if (state.quickFilter === 'contactless' || map.getZoom() < 8.5) return;
   clearTimeout(osmMoveTimer);
   osmMoveTimer = setTimeout(() => loadOtherStationsNearby({ silent: true }), 550);
 });

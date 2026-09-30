@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#07111d">
-  <meta name="description" content="Wash 2.0 — trouvez les lavages auto sans contact documentés et les autres stations autour de vous.">
-  <title>Wash 2.0 — Trouver le bon lavage auto</title>
+  <meta name="description" content="Carte des lavages auto — rouleaux, haute pression manuelle, lavage à la main et sans contact automatique en France.">
+  <title>Carte des lavages auto — Trouver le bon lavage auto</title>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="styles.css?v=wash2-other-20260929">
+  <link rel="stylesheet" href="styles.css?v=methods-20260930">
 </head>
 <body>
   <div class="app-shell">
@@ -19,8 +19,8 @@
           <svg viewBox="0 0 28 28"><path d="M14 2.5C10.2 7.4 6.5 11.8 6.5 17a7.5 7.5 0 0 0 15 0c0-5.2-3.7-9.6-7.5-14.5Z"/><path d="M10.5 17.5c.5 2.2 1.8 3.4 4 3.7"/></svg>
         </span>
         <span class="brand-copy">
-          <strong>Wash <b>2.0</b></strong>
-          <small>Le bon lavage, clairement.</small>
+          <strong>Carte des <b>lavages auto</b></strong>
+          <small>Choisis ta méthode de lavage.</small>
         </span>
       </a>
 
@@ -45,7 +45,7 @@
         <div class="mobile-sheet-header">
           <span class="sheet-handle" aria-hidden="true"></span>
           <div>
-            <strong>Wash 2.0</strong>
+            <strong>Carte des lavages auto</strong>
             <small id="mobileSheetCount">Chargement…</small>
           </div>
           <button class="mobile-sheet-close" id="mobilePanelClose" type="button" aria-label="Fermer le panneau">
@@ -56,12 +56,12 @@
         <div class="panel-scroll">
           <section class="hero">
             <span class="eyebrow"><i></i> Base indépendante</span>
-            <h1>Trouve le <em>bon lavage</em>, sans confondre les technologies.</h1>
-            <p>Sans-contact documenté en priorité, plus les autres stations : rouleaux, haute pression, hybrides et données OpenStreetMap autour de toi.</p>
+            <h1>À chaque voiture, sa <em>méthode de lavage.</em></h1>
+            <p>Rouleaux, lance haute pression, nettoyage à la main ou robot sans brosses : trouve l’équipement qui te convient.</p>
             <div class="hero-stats">
               <div><strong id="heroStationCount">—</strong><span>stations chargées</span></div>
-              <div><strong id="contactlessCount">—</strong><span>sans contact</span></div>
-              <div><strong id="otherCount">—</strong><span>autres lavages</span></div>
+              <div><strong id="contactlessCount">—</strong><span>sans contact auto</span></div>
+              <div><strong id="otherCount">—</strong><span>méthodes de lavage</span></div>
             </div>
           </section>
 
@@ -71,13 +71,21 @@
             <b>→</b>
           </button>
 
-          <section class="quick-filters" aria-label="Filtres rapides">
-            <button class="filter-chip active" id="filterContactless" type="button" data-filter="contactless">Sans contact</button>
-            <button class="filter-chip" id="filterTotalWash" type="button" data-filter="totalwash">Total Wash</button>
-            <button class="filter-chip" id="filterOther" type="button" data-filter="other">Autres</button>
-            <button class="filter-chip" id="filterAll" type="button" data-filter="all">Toutes</button>
-            <button class="filter-chip" id="filterPrecise" type="button" data-filter="precise">Position précise</button>
-            <button class="filter-chip" id="filterFavorites" type="button" data-filter="favorites">★ <span id="favoriteCount">0</span></button>
+          <section class="wash-methods" aria-label="Méthode de lavage">
+            <h2>Quel type de lavage ?</h2>
+            <div class="quick-filters">
+              <button class="filter-chip active" id="filterAll" type="button" data-filter="all">Tous les types</button>
+              <button class="filter-chip method" id="filterContactless" type="button" data-filter="contactless"><strong>Sans contact automatique <span data-type-count="contactless">—</span></strong><small>Robot ou portique · sans brosses</small></button>
+              <button class="filter-chip method" type="button" data-filter="rollers"><strong>Rouleaux <span data-type-count="rollers">—</span></strong><small>Portique ou tunnel · contact mécanique</small></button>
+              <button class="filter-chip method" type="button" data-filter="pressure"><strong>Haute pression manuelle <span data-type-count="pressure">—</span></strong><small>Lance à tenir · jet sans contact</small></button>
+              <button class="filter-chip method" type="button" data-filter="hand"><strong>Lavage à la main <span data-type-count="hand">—</span></strong><small>Prestation avec intervention humaine</small></button>
+              <button class="filter-chip" type="button" data-filter="unknown">Type à confirmer <span data-type-count="unknown">—</span></button>
+            </div>
+            <p class="method-help">Une station peut proposer plusieurs méthodes. La haute pression manuelle est distincte du sans-contact automatique. Le lavage à la main peut utiliser des chiffons ou des brosses.</p>
+            <div class="secondary-filters">
+              <button class="filter-chip" id="filterPrecise" type="button" data-filter="precise">Position précise</button>
+              <button class="filter-chip" id="filterFavorites" type="button" data-filter="favorites">★ Favoris <span id="favoriteCount">0</span></button>
+            </div>
           </section>
 
           <section class="route-card">
@@ -210,10 +218,10 @@
   <dialog id="aboutDialog">
     <button class="dialog-close" id="closeDialog" aria-label="Fermer"><svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     <span class="eyebrow">Transparence</span>
-    <h2>Deux couches, deux niveaux de confiance.</h2>
-    <p><strong>Sans contact</strong> : base stricte de stations pour lesquelles un programme automatique sans brosses a été documenté publiquement. Certaines stations sont hybrides : vérifie toujours le programme choisi sur place.</p>
-    <p><strong>Autres lavages</strong> : stations à rouleaux, haute pression, hybrides ou points OpenStreetMap. Les données OSM sont communautaires et la technologie n’est affichée que lorsqu’elle est renseignée.</p>
-    <p>Une station OpenStreetMap n’est jamais considérée automatiquement comme « sans contact vérifié ». La couche stricte reste séparée.</p>
+    <h2>Des méthodes distinctes, des sources visibles.</h2>
+    <p><strong>Sans contact automatique</strong> : robot ou portique sans brosses, avec un programme documenté. <strong>Rouleaux</strong> : portique ou tunnel avec contact mécanique.</p>
+    <p><strong>Haute pression manuelle</strong> : lance utilisée soi-même. Le jet peut nettoyer sans toucher la carrosserie ; cela ne garantit pas l’absence d’une brosse optionnelle. <strong>Lavage à la main</strong> : intervention humaine, pouvant utiliser chiffons ou brosses.</p>
+    <p>Une station peut apparaître dans plusieurs méthodes. Total Wash est une enseigne, pas une méthode. Les équipements non renseignés restent « Type à confirmer ». Les données OpenStreetMap sont communautaires ; elles ne prouvent pas à elles seules un cycle automatique sans brosses.</p>
     <p>Le filtre d’itinéraire mesure la distance géométrique entre une station et le tracé OSRM. Il ne correspond pas encore au détour routier aller-retour réel.</p>
     <div class="dialog-links"><a href="SOURCES.md" target="_blank" rel="noopener">Sources sans contact →</a><a href="SOURCES-AUTRES.md" target="_blank" rel="noopener">Sources autres lavages →</a></div>
   </dialog>
@@ -237,6 +245,6 @@
   </dialog>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="app.js?v=wash2-total-20260929" defer></script>
+  <script src="app.js?v=methods-20260930" defer></script>
 </body>
 </html>
