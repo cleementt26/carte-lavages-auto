@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="styles.css?v=methods-20260930b">
+  <link rel="stylesheet" href="styles.css?v=classified-20260930">
 </head>
 <body>
   <div class="app-shell">
@@ -59,7 +59,7 @@
             <h1>À chaque voiture, sa <em>méthode de lavage.</em></h1>
             <p>Rouleaux, lance haute pression, detailing professionnel ou robot sans brosses : trouve l’équipement qui te convient.</p>
             <div class="hero-stats">
-              <div><strong id="heroStationCount">—</strong><span>stations chargées</span></div>
+              <div><strong id="heroStationCount">—</strong><span>stations affichées</span></div>
               <div><strong id="contactlessCount">—</strong><span>sans contact auto</span></div>
               <div><strong id="otherCount">—</strong><span>méthodes de lavage</span></div>
             </div>
@@ -78,8 +78,7 @@
               <button class="filter-chip method" id="filterContactless" type="button" data-filter="contactless"><strong>Sans contact automatique <span data-type-count="contactless">—</span></strong><small>Robot ou portique · sans brosses</small></button>
               <button class="filter-chip method" type="button" data-filter="rollers"><strong>Rouleaux automatique <span data-type-count="rollers">—</span></strong><small>Portique ou tunnel · contact mécanique</small></button>
               <button class="filter-chip method" type="button" data-filter="pressure"><strong>Haute pression manuelle <span data-type-count="pressure">—</span></strong><small>Lance à tenir · jet sans contact</small></button>
-              <button class="filter-chip method" type="button" data-filter="hand"><strong>Lavage à la main <span data-type-count="hand">—</span></strong><small>Detailing professionnel uniquement</small></button>
-              <button class="filter-chip" type="button" data-filter="unknown">Type à confirmer <span data-type-count="unknown">—</span></button>
+              <button class="filter-chip method" type="button" data-filter="hand"><strong>Detailing professionnel <span data-type-count="hand">—</span></strong><small>Lavage à la main · soin et finition</small></button>
             </div>
             <p class="method-help">Une station peut proposer plusieurs méthodes. La haute pression manuelle est distincte du sans-contact automatique. Le lavage à la main est réservé aux professionnels du detailing identifiés.</p>
             <div class="secondary-filters">
@@ -220,8 +219,8 @@
     <span class="eyebrow">Transparence</span>
     <h2>Des méthodes distinctes, des sources visibles.</h2>
     <p><strong>Sans contact automatique</strong> : robot ou portique sans brosses, avec un programme documenté. <strong>Rouleaux automatique</strong> : portique ou tunnel avec contact mécanique.</p>
-    <p><strong>Haute pression manuelle</strong> : lance utilisée soi-même. Le jet peut nettoyer sans toucher la carrosserie ; cela ne garantit pas l’absence d’une brosse optionnelle. <strong>Lavage à la main</strong> : prestation de detailing professionnel documentée ; un simple service de lavage à la main ne suffit pas.</p>
-    <p>Une station peut apparaître dans plusieurs méthodes. Total Wash est une enseigne, pas une méthode. Les équipements non renseignés restent « Type à confirmer ». Les données OpenStreetMap sont communautaires ; elles ne prouvent pas à elles seules un cycle automatique sans brosses.</p>
+    <p><strong>Haute pression manuelle</strong> : lance utilisée soi-même. Le jet peut nettoyer sans toucher la carrosserie ; cela ne garantit pas l’absence d’une brosse optionnelle. <strong>Detailing professionnel</strong> : prestation de detailing professionnel documentée ; un simple service de lavage à la main ne suffit pas.</p>
+    <p>Une station peut apparaître dans plusieurs méthodes. Total Wash est une enseigne, pas une méthode. Seules les stations dont au moins une méthode est identifiée sont affichées. Les données OpenStreetMap sont communautaires ; elles ne prouvent pas à elles seules un cycle automatique sans brosses.</p>
     <p>Le filtre d’itinéraire mesure la distance géométrique entre une station et le tracé OSRM. Il ne correspond pas encore au détour routier aller-retour réel.</p>
     <div class="dialog-links"><a href="SOURCES.md" target="_blank" rel="noopener">Sources sans contact →</a><a href="SOURCES-AUTRES.md" target="_blank" rel="noopener">Sources autres lavages →</a></div>
   </dialog>
@@ -245,6 +244,6 @@
   </dialog>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="app.js?v=methods-20260930b" defer></script>
+  <script src="app.js?v=classified-20260930" defer></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const state = {
   stations: [],
+  unclassifiedStations: [],
   visibleStations: [],
   markers: new Map(),
   userPosition: null,
@@ -43,8 +44,7 @@ const WASH_TYPES = {
   contactless: { label: 'Sans contact automatique', color: '#0878ef' },
   rollers: { label: 'Rouleaux automatique', color: '#b86b0b' },
   pressure: { label: 'Haute pression manuelle', color: '#098777' },
-  hand: { label: 'Lavage à la main', color: '#8851c8' },
-  unknown: { label: 'Type à confirmer', color: '#64748b' }
+  hand: { label: 'Detailing professionnel', color: '#8851c8' }
 };
 
 function stationTypes(station) {
@@ -62,7 +62,7 @@ function stationTypes(station) {
   if (station.id === 1006) { types.add('rollers'); types.add('pressure'); }
   const tags = station.osm_tags || {};
   if (tags.high_pressure_washer === 'yes' && tags.self_service === 'yes') types.add('pressure');
-  return types.size ? [...types] : ['unknown'];
+  return [...types];
 }
 
 function isContactless(station) {
@@ -508,7 +508,7 @@ function osmCoordinate(element) {
 }
 
 function isNearKnownStation(lat, lon, maxKm = 0.12) {
-  return state.stations.some((station) => !isOsmOther(station)
+  return [...state.stations, ...state.unclassifiedStations].some((station) => !isOsmOther(station)
     && haversine([lat, lon], [station.latitude, station.longitude]) <= maxKm);
 }
 
@@ -608,6 +608,10 @@ async function loadOtherStationsNearby({ silent = false } = {}) {
         google_maps_type: 'recherche',
         verification_equipement: osmVerificationText(tags)
       };
+      if (!stationTypes(station).length) {
+        state.unclassifiedStations.push(station);
+        continue;
+      }
       state.stations.push(station);
       addStationMarker(station);
       added += 1;
@@ -662,20 +666,22 @@ async function loadStations() {
     ].filter(isValidStation);
 
     const ids = new Set();
-    state.stations = allRaw.filter((station) => {
+    const uniqueStations = allRaw.filter((station) => {
       if (ids.has(station.id)) return false;
       ids.add(station.id);
       return true;
     });
 
+    state.unclassifiedStations = uniqueStations.filter(station => !stationTypes(station).length);
+    state.stations = uniqueStations.filter(station => stationTypes(station).length > 0);
     state.stations.forEach(addStationMarker);
     updateCounters();
     renderStations();
     statusBox.classList.remove('visible');
     if (!totalLoaded) showStatus('La base Total Wash n’a pas pu être chargée. Recharge la page pour réessayer.', 0);
 
-    if (allRaw.length !== state.stations.length) {
-      console.warn(`Carte des lavages auto: ${allRaw.length - state.stations.length} entrée(s) dupliquée(s) ignorée(s).`);
+    if (allRaw.length !== uniqueStations.length) {
+      console.warn(`Carte des lavages auto: ${allRaw.length - uniqueStations.length} entrée(s) dupliquée(s) ignorée(s).`);
     }
   } catch (error) {
     console.error(error);
