@@ -41,7 +41,7 @@ const citySuggestionCache = new Map();
 
 const WASH_TYPES = {
   contactless: { label: 'Sans contact automatique', color: '#0878ef' },
-  rollers: { label: 'Rouleaux', color: '#b86b0b' },
+  rollers: { label: 'Rouleaux automatique', color: '#b86b0b' },
   pressure: { label: 'Haute pression manuelle', color: '#098777' },
   hand: { label: 'Lavage à la main', color: '#8851c8' },
   unknown: { label: 'Type à confirmer', color: '#64748b' }
@@ -53,7 +53,8 @@ function stationTypes(station) {
   const services = station.services || [];
   if (services.includes('Rouleaux')) types.add('rollers');
   if (services.includes('Haute pression')) types.add('pressure');
-  if (services.includes('Lavage à la main')) types.add('hand');
+  // Hand washing alone does not establish a professional detailing service.
+  if (station.detailing_verified === true && station.detailing_source) types.add('hand');
   // Only documented equipment: neither "automatic" nor "hybrid" proves a brushless cycle.
   if (station.wash_type === 'rouleaux_haute_pression') { types.add('rollers'); types.add('pressure'); }
   if (station.wash_type === 'haute_pression') types.add('pressure');
@@ -61,7 +62,6 @@ function stationTypes(station) {
   if (station.id === 1006) { types.add('rollers'); types.add('pressure'); }
   const tags = station.osm_tags || {};
   if (tags.high_pressure_washer === 'yes' && tags.self_service === 'yes') types.add('pressure');
-  if (tags.hand_wash === 'yes') types.add('hand');
   return types.size ? [...types] : ['unknown'];
 }
 
@@ -453,9 +453,26 @@ function addStationMarker(station) {
   state.markers.set(station.id, marker);
 }
 
+function decodeDisplayText(value = '') {
+  // Decode entity tokens only; never interpret a station name as HTML markup.
+  const decoder = document.createElement('textarea');
+  let text = String(value);
+  for (let pass = 0; pass < 3; pass++) {
+    const decoded = text.replace(/&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+);/gi, entity => {
+      decoder.innerHTML = entity;
+      return decoder.value;
+    });
+    if (decoded === text) break;
+    text = decoded;
+  }
+  return text;
+}
+
 function normalizedStation(station, kind) {
   return {
     ...station,
+    nom: decodeDisplayText(station.nom),
+    adresse: decodeDisplayText(station.adresse),
     kind: station.kind || kind,
     id: Number(station.id),
     latitude: Number(station.latitude),

@@ -5,10 +5,10 @@ Carte indépendante de 1 137 stations en France, avec recherche, favoris, géolo
 ## Méthodes de lavage
 
 - Sans contact automatique : 46 stations avec programme sans brosses documenté.
-- Rouleaux : 797 stations.
+- Rouleaux automatique : 797 stations.
 - Haute pression manuelle : 322 stations, avec lance utilisée soi-même.
-- Lavage à la main : 40 stations.
-- Type à confirmer : 191 stations dont les services ne permettent pas de classer le lavage extérieur.
+- Lavage à la main : detailing professionnel uniquement, avec preuve explicite (`detailing_verified` et `detailing_source`). Aucun centre de la base actuelle ne possède encore cette vérification.
+- Type à confirmer : 231 stations dont les services ne permettent pas de classer le lavage extérieur.
 
 Comptage au 30 septembre 2026. Une station peut proposer plusieurs méthodes : ces nombres ne s’additionnent pas. Total Wash est une enseigne ; ses 1 084 centres sont répartis dans les méthodes selon les services de leur localisateur officiel.
 
