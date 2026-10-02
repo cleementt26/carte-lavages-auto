@@ -1,5 +1,7 @@
 /* global L */
 const FRANCE_CENTER = [46.603354, 1.888334];
+const LIST_PAGE_SIZE = 60;
+const formatCount = new Intl.NumberFormat('fr-FR');
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(FRANCE_CENTER, 6);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -20,12 +22,14 @@ const state = {
   route: null,
   routeLine: null,
   routeCasing: null,
+  routeDistances: new Map(),
   selectedStationId: null,
   locating: false,
   quickFilter: 'all',
   searchQuery: '',
   sort: 'smart',
   favorites: loadFavorites(),
+  listLimit: LIST_PAGE_SIZE,
   osmKeys: new Set(),
   osmFetchKeys: new Set(),
   osmLoading: false
@@ -46,6 +50,33 @@ const WASH_TYPES = {
   pressure: { label: 'Haute pression manuelle', color: '#098777' },
   hand: { label: 'Detailing professionnel', color: '#8851c8' }
 };
+
+const markerLayer = typeof L.markerClusterGroup === 'function'
+  ? L.markerClusterGroup({
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: true,
+      removeOutsideVisibleBounds: true,
+      maxClusterRadius: 48,
+      disableClusteringAtZoom: 14,
+      iconCreateFunction(cluster) {
+        const totals = {};
+        for (const marker of cluster.getAllChildMarkers()) {
+          const type = marker.options.washType || 'contactless';
+          totals[type] = (totals[type] || 0) + 1;
+        }
+        const dominant = Object.entries(totals).sort((a, b) => b[1] - a[1])[0]?.[0] || 'contactless';
+        const color = WASH_TYPES[dominant]?.color || WASH_TYPES.contactless.color;
+        return L.divIcon({
+          className: 'wash-cluster',
+          html: `<div class="cluster-bubble" style="background:${color}">${formatCount.format(cluster.getChildCount())}</div>`,
+          iconSize: [48, 48],
+          iconAnchor: [24, 24]
+        });
+      }
+    })
+  : L.layerGroup();
+
+markerLayer.addTo(map);
 
 function stationTypes(station) {
   const types = new Set();
@@ -99,7 +130,11 @@ function loadFavorites() {
 }
 
 function saveFavorites() {
-  localStorage.setItem('wash2-favorites', JSON.stringify([...state.favorites]));
+  try {
+    localStorage.setItem('wash2-favorites', JSON.stringify([...state.favorites]));
+  } catch (error) {
+    console.warn('Carte des lavages auto: favoris non enregistrés', error);
+  }
   const favoriteCount = $('#favoriteCount');
   if (favoriteCount) favoriteCount.textContent = state.favorites.size;
 }
@@ -109,6 +144,19 @@ function showStatus(message, duration = 2200) {
   statusBox.classList.add('visible');
   clearTimeout(showStatus.timer);
   if (duration) showStatus.timer = setTimeout(() => statusBox.classList.remove('visible'), duration);
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 12000, timeoutMessage = 'Le service met trop de temps à répondre') {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function escapeHtml(value = '') {
@@ -198,7 +246,12 @@ function distanceLabel(km) {
 }
 
 function stationDistance(station) {
-  if (state.route && routeFilter.checked) return distanceToRoute(station, state.route);
+  if (state.route && routeFilter.checked) {
+    if (!state.routeDistances.has(station.id)) {
+      state.routeDistances.set(station.id, distanceToRoute(station, state.route));
+    }
+    return state.routeDistances.get(station.id);
+  }
   if (state.userPosition) return haversine(state.userPosition, [station.latitude, station.longitude]);
   return Infinity;
 }
@@ -284,14 +337,14 @@ function renderStations() {
   const visibleIds = new Set(stations.map((station) => station.id));
   for (const [id, marker] of state.markers) {
     const visible = visibleIds.has(id);
-    if (visible && !map.hasLayer(marker)) marker.addTo(map);
-    if (!visible && map.hasLayer(marker)) marker.removeFrom(map);
+    if (visible && !markerLayer.hasLayer(marker)) markerLayer.addLayer(marker);
+    if (!visible && markerLayer.hasLayer(marker)) markerLayer.removeLayer(marker);
   }
 
-  count.textContent = stations.length;
-  const label = `${stations.length} station${stations.length > 1 ? 's' : ''}`;
+  count.textContent = formatCount.format(stations.length);
+  const label = `${formatCount.format(stations.length)} station${stations.length === 1 ? '' : 's'}`;
   $('#mobileCount').textContent = label;
-  $('#mobileSheetCount').textContent = `${label} affichée${stations.length > 1 ? 's' : ''}`;
+  $('#mobileSheetCount').textContent = `${label} affichée${stations.length === 1 ? '' : 's'}`;
   $('#mapPillText').textContent = `${label} · ${WASH_TYPES[state.quickFilter]?.label || 'Tous les types'}`;
 
   const context = [];
@@ -303,40 +356,26 @@ function renderStations() {
   $('#activeContext').hidden = context.length === 0;
   $('#activeContext').textContent = context.join(' · ');
 
+  const listedStations = stations.slice(0, state.listLimit);
   stationList.innerHTML = stations.length
-    ? stations.map((station) => `
-      <article class="station-item ${isContactless(station) ? '' : 'kind-other'} ${state.selectedStationId === station.id ? 'active' : ''}" data-id="${station.id}" tabindex="0" role="button" aria-label="Voir ${escapeHtml(station.nom)}">
-        <span class="station-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16M6 17l1-7h10l1 7M8 10l1-3h6l1 3M7 14h.01M17 14h.01"/></svg></span>
-        <span class="station-copy">
-          <strong>${escapeHtml(station.nom)}</strong>
-          <small>${escapeHtml(station.adresse)}</small>
-          <span class="station-meta">${stationBadges(station)}</span>
-        </span>
-        <span class="station-distance">${Number.isFinite(station.distance) ? distanceLabel(station.distance) : ''}</span>
-        <button class="item-favorite ${state.favorites.has(station.id) ? 'active' : ''}" type="button" data-favorite-id="${station.id}" aria-label="${state.favorites.has(station.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${state.favorites.has(station.id) ? '★' : '☆'}</button>
+    ? `${listedStations.map((station) => `
+      <article class="station-item ${isContactless(station) ? '' : 'kind-other'} ${state.selectedStationId === station.id ? 'active' : ''}" data-id="${station.id}">
+        <button class="station-main" type="button" data-station-id="${station.id}" aria-label="Voir ${escapeHtml(station.nom)} sur la carte">
+          <span class="station-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17h16M6 17l1-7h10l1 7M8 10l1-3h6l1 3M7 14h.01M17 14h.01"/></svg></span>
+          <span class="station-copy">
+            <strong>${escapeHtml(station.nom)}</strong>
+            <small>${escapeHtml(station.adresse)}</small>
+            <span class="station-meta">${stationBadges(station)}</span>
+          </span>
+          <span class="station-distance">${Number.isFinite(station.distance) ? distanceLabel(station.distance) : ''}</span>
+        </button>
+        <button class="item-favorite ${state.favorites.has(station.id) ? 'active' : ''}" type="button" data-favorite-id="${station.id}" aria-pressed="${state.favorites.has(station.id)}" aria-label="${state.favorites.has(station.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}">${state.favorites.has(station.id) ? '★' : '☆'}</button>
       </article>
-    `).join('')
+    `).join('')}${stations.length > listedStations.length ? `
+      <button class="list-more" type="button" data-load-more>
+        Afficher plus <span>${formatCount.format(stations.length - listedStations.length)} restantes</span>
+      </button>` : ''}`
     : '<div class="empty-state">Aucune station ne correspond à ces critères.<br>Essaie d’effacer un filtre ou d’élargir le corridor.</div>';
-
-  stationList.querySelectorAll('.station-item').forEach((item) => {
-    item.addEventListener('click', (event) => {
-      if (event.target.closest('[data-favorite-id]')) return;
-      focusStation(Number(item.dataset.id));
-    });
-    item.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        focusStation(Number(item.dataset.id));
-      }
-    });
-  });
-
-  stationList.querySelectorAll('[data-favorite-id]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      toggleFavorite(Number(button.dataset.favoriteId));
-    });
-  });
 
   if (state.selectedStationId && !visibleIds.has(state.selectedStationId)) clearStationSelection();
   else if (state.selectedStationId) selectStation(state.selectedStationId, false);
@@ -347,12 +386,12 @@ function renderStations() {
 function updateCounters() {
   const contactless = state.stations.filter(isContactless).length;
   const other = state.stations.length - contactless;
-  $('#heroStationCount').textContent = state.stations.length;
-  $('#contactlessCount').textContent = contactless;
+  $('#heroStationCount').textContent = formatCount.format(state.stations.length);
+  $('#contactlessCount').textContent = formatCount.format(contactless);
   $('#otherCount').textContent = 4;
   for (const type of Object.keys(WASH_TYPES)) {
     const counter = document.querySelector(`[data-type-count="${type}"]`);
-    if (counter) counter.textContent = state.stations.filter(s => stationTypes(s).includes(type)).length;
+    if (counter) counter.textContent = formatCount.format(state.stations.filter(s => stationTypes(s).includes(type)).length);
   }
   const favoriteCount = $('#favoriteCount');
   if (favoriteCount) favoriteCount.textContent = state.favorites.size;
@@ -370,6 +409,7 @@ function updateSelectionFavorite(id) {
   const favorite = state.favorites.has(id);
   $('#selectionFavorite').classList.toggle('active', favorite);
   $('#selectionFavorite').textContent = favorite ? '★' : '☆';
+  $('#selectionFavorite').setAttribute('aria-pressed', String(favorite));
   $('#selectionFavorite').setAttribute('aria-label', favorite ? 'Retirer des favoris' : 'Ajouter aux favoris');
 }
 
@@ -419,9 +459,13 @@ function focusStation(id) {
   const station = state.stations.find((item) => item.id === id);
   const marker = state.markers.get(id);
   if (!station || !marker) return;
-  selectStation(id);
-  map.flyTo([station.latitude, station.longitude], Math.max(map.getZoom(), 14), { duration: .75 });
-  if (window.innerWidth <= 820) closeMobilePanel();
+  const reveal = () => {
+    selectStation(id);
+    map.flyTo([station.latitude, station.longitude], Math.max(map.getZoom(), 14), { duration: .65 });
+    if (window.innerWidth <= 820) closeMobilePanel();
+  };
+  if (typeof markerLayer.zoomToShowLayer === 'function') markerLayer.zoomToShowLayer(marker, reveal);
+  else reveal();
 }
 
 function openDirections(station) {
@@ -442,15 +486,18 @@ function closeDirections() {
   else dialog.removeAttribute('open');
 }
 
-function addStationMarker(station) {
+function addStationMarker(station, attach = true) {
   if (state.markers.has(station.id)) return;
+  const type = stationTypes(station)[0] || 'contactless';
   const marker = L.marker([station.latitude, station.longitude], {
     icon: markerIconFor(station),
-    title: station.nom
+    title: station.nom,
+    washType: type
   });
   marker.on('click', () => selectStation(station.id));
-  marker.addTo(map);
+  if (attach) markerLayer.addLayer(marker);
   state.markers.set(station.id, marker);
+  return marker;
 }
 
 function decodeDisplayText(value = '') {
@@ -674,7 +721,9 @@ async function loadStations() {
 
     state.unclassifiedStations = uniqueStations.filter(station => !stationTypes(station).length);
     state.stations = uniqueStations.filter(station => stationTypes(station).length > 0);
-    state.stations.forEach(addStationMarker);
+    const initialMarkers = state.stations.map((station) => addStationMarker(station, false)).filter(Boolean);
+    if (typeof markerLayer.addLayers === 'function') markerLayer.addLayers(initialMarkers);
+    else initialMarkers.forEach((marker) => markerLayer.addLayer(marker));
     updateCounters();
     renderStations();
     statusBox.classList.remove('visible');
@@ -738,7 +787,11 @@ function locateUser() {
       accuracy: coords.accuracy,
       timestamp: Date.now()
     };
-    localStorage.setItem('wash2-position', JSON.stringify(position));
+    try {
+      localStorage.setItem('wash2-position', JSON.stringify(position));
+    } catch (error) {
+      console.warn('Carte des lavages auto: position non enregistrée', error);
+    }
     applyUserPosition(position);
     setLocationBusy(false);
   }, (error) => {
@@ -753,7 +806,7 @@ function locateUser() {
 
 async function geocode(query) {
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=fr&limit=1&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 10000, 'La recherche d’adresse met trop de temps à répondre');
   if (!response.ok) throw new Error('Service de recherche indisponible');
   const results = await response.json();
   if (!results.length) throw new Error(`Adresse introuvable : ${query}`);
@@ -810,7 +863,11 @@ function setupCityAutocomplete(input, list) {
     const items = [...list.querySelectorAll('.suggestion-item')];
     if (!items.length) return;
     activeIndex = (index + items.length) % items.length;
-    items.forEach((item, itemIndex) => item.classList.toggle('active', itemIndex === activeIndex));
+    items.forEach((item, itemIndex) => {
+      const active = itemIndex === activeIndex;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-selected', String(active));
+    });
     input.setAttribute('aria-activedescendant', items[activeIndex].id);
     items[activeIndex].scrollIntoView({ block: 'nearest' });
   };
@@ -831,7 +888,7 @@ function setupCityAutocomplete(input, list) {
     activeIndex = -1;
     list.innerHTML = cities.length
       ? cities.map((city, index) => `
-        <button class="suggestion-item" id="${list.id}-option-${index}" type="button" role="option" data-index="${index}">
+        <button class="suggestion-item" id="${list.id}-option-${index}" type="button" role="option" aria-selected="false" data-index="${index}">
           <span class="suggestion-pin" aria-hidden="true">⌖</span>
           <span class="suggestion-copy"><strong>${escapeHtml(city.name)}</strong><small>${escapeHtml(city.context || 'France')}</small></span>
         </button>`).join('')
@@ -874,23 +931,34 @@ function setupCityAutocomplete(input, list) {
 }
 
 function updateRouteNearbySummary() {
-  const nearby = $('#routeNearby');
-  if (!nearby || !state.route) return;
+  const labels = [$('#routeNearbyFilter'), $('#routeNearbySummary')].filter(Boolean);
+  if (!labels.length || !state.route) return;
   if (!routeFilter.checked) {
-    nearby.textContent = 'Filtre de proximité désactivé';
+    labels.forEach((label) => { label.textContent = 'Filtre de proximité désactivé'; });
     return;
   }
   const total = state.visibleStations.length;
-  nearby.textContent = `${total} station${total > 1 ? 's' : ''} à ≤ ${distanceRange.value} km du tracé`;
+  const message = `${formatCount.format(total)} station${total === 1 ? '' : 's'} à ≤ ${distanceRange.value} km du tracé`;
+  labels.forEach((label) => { label.textContent = message; });
 }
 
 function setRouteDistance(value) {
   distanceRange.value = String(value);
+  state.listLimit = LIST_PAGE_SIZE;
   $('#distanceOutput').textContent = `${value} km`;
   $$('.distance-presets button').forEach((button) => {
     button.classList.toggle('active', Number(button.dataset.distance) === Number(value));
   });
-  renderStations();
+  cancelAnimationFrame(setRouteDistance.frame);
+  setRouteDistance.frame = requestAnimationFrame(renderStations);
+}
+
+function formatDuration(seconds) {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} h ${String(remainder).padStart(2, '0')}` : `${hours} h`;
 }
 
 async function calculateRoute(event) {
@@ -903,17 +971,20 @@ async function calculateRoute(event) {
   button.disabled = true;
 
   try {
-    const start = await resolvePlace($('#startInput'));
-    const end = await resolvePlace($('#endInput'));
+    const [start, end] = await Promise.all([
+      resolvePlace($('#startInput')),
+      resolvePlace($('#endInput'))
+    ]);
     routeSummary.textContent = 'Calcul du trajet…';
     const url = `https://router.project-osrm.org/route/v1/driving/${start.lon},${start.lat};${end.lon},${end.lat}?alternatives=false&steps=false&overview=full&geometries=geojson`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url, {}, 15000, 'Le calcul du trajet met trop de temps à répondre');
     if (!response.ok) throw new Error('Le service d’itinéraire ne répond pas');
     const data = await response.json();
     if (data.code !== 'Ok' || !data.routes?.length) throw new Error('Aucun itinéraire routier trouvé');
 
     const best = data.routes[0];
     state.route = best.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+    state.routeDistances.clear();
     if (state.routeLine) state.routeLine.remove();
     if (state.routeCasing) state.routeCasing.remove();
 
@@ -933,14 +1004,15 @@ async function calculateRoute(event) {
     routeFilter.checked = true;
     $('#clearRoute').hidden = false;
     $('#routeFilterBlock').hidden = false;
+    $('#routeCard').open = true;
     state.sort = 'distance';
     $('#sortSelect').value = 'distance';
 
     routeSummary.innerHTML = `
       <span class="route-mode">Trajet calculé</span><br>
-      <strong>${distanceLabel(best.distance / 1000)} · ${Math.round(best.duration / 60)} min</strong><br>
+      <strong>${distanceLabel(best.distance / 1000)} · ${formatDuration(best.duration)}</strong><br>
       ${escapeHtml(startQuery)} → ${escapeHtml(endQuery)}
-      <span class="route-nearby" id="routeNearby"></span>
+      <span class="route-nearby" id="routeNearbySummary"></span>
     `;
     renderStations();
 
@@ -962,6 +1034,8 @@ function clearRoute() {
   state.route = null;
   state.routeLine = null;
   state.routeCasing = null;
+  state.routeDistances.clear();
+  state.listLimit = LIST_PAGE_SIZE;
   routeFilter.checked = false;
   routeFilter.disabled = true;
   distanceRange.disabled = true;
@@ -969,6 +1043,10 @@ function clearRoute() {
   routeSummary.textContent = '';
   $('#clearRoute').hidden = true;
   $('#routeFilterBlock').hidden = true;
+  if (!state.userPosition) {
+    state.sort = 'smart';
+    $('#sortSelect').value = 'smart';
+  }
   renderStations();
   if (state.userPosition) map.setView(state.userPosition, 11);
   else map.setView(FRANCE_CENTER, 6);
@@ -976,8 +1054,19 @@ function clearRoute() {
 
 function setQuickFilter(filter) {
   state.quickFilter = filter;
-  $$('.filter-chip').forEach((button) => button.classList.toggle('active', button.dataset.filter === filter));
-  for (const station of state.stations) state.markers.get(station.id)?.setIcon(markerIconFor(station));
+  state.listLimit = LIST_PAGE_SIZE;
+  $$('.filter-chip').forEach((button) => {
+    const active = button.dataset.filter === filter;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  for (const station of state.stations) {
+    const marker = state.markers.get(station.id);
+    if (!marker) continue;
+    marker.options.washType = stationTypes(station).includes(filter) ? filter : stationTypes(station)[0];
+    marker.setIcon(markerIconFor(station));
+  }
+  markerLayer.refreshClusters?.();
   clearStationSelection();
   renderStations();
   if (filter !== 'contactless') loadOtherStationsNearby();
@@ -985,13 +1074,9 @@ function setQuickFilter(filter) {
 
 function setSearch(value) {
   state.searchQuery = value.trim();
+  state.listLimit = LIST_PAGE_SIZE;
   $('#clearSearch').hidden = !state.searchQuery;
   renderStations();
-
-  if (state.searchQuery && state.visibleStations.length === 1) {
-    const station = state.visibleStations[0];
-    map.flyTo([station.latitude, station.longitude], 13, { duration: .5 });
-  }
 }
 
 const mobilePanel = $('.panel');
@@ -1021,16 +1106,26 @@ $('#routeForm').addEventListener('submit', calculateRoute);
 setupCityAutocomplete($('#startInput'), $('#startSuggestions'));
 setupCityAutocomplete($('#endInput'), $('#endSuggestions'));
 $('#clearRoute').addEventListener('click', clearRoute);
-routeFilter.addEventListener('change', renderStations);
+routeFilter.addEventListener('change', () => { state.listLimit = LIST_PAGE_SIZE; renderStations(); });
 distanceRange.addEventListener('input', () => setRouteDistance(distanceRange.value));
 $$('.distance-presets button').forEach((button) => button.addEventListener('click', () => setRouteDistance(button.dataset.distance)));
-$$('.filter-chip').forEach((button) => button.addEventListener('click', () => setQuickFilter(button.dataset.filter)));
-$('#sortSelect').addEventListener('change', (event) => { state.sort = event.target.value; renderStations(); });
+$$('.filter-chip').forEach((button) => {
+  button.setAttribute('aria-pressed', String(button.classList.contains('active')));
+  button.addEventListener('click', () => setQuickFilter(button.dataset.filter));
+});
+$('#sortSelect').addEventListener('change', (event) => { state.sort = event.target.value; state.listLimit = LIST_PAGE_SIZE; renderStations(); });
 $('#stationSearch').addEventListener('input', (event) => setSearch(event.target.value));
+$('#stationSearch').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && state.visibleStations.length) {
+    event.preventDefault();
+    focusStation(state.visibleStations[0].id);
+  }
+});
 $('#clearSearch').addEventListener('click', () => { $('#stationSearch').value = ''; setSearch(''); $('#stationSearch').focus(); });
 $('#brandHome').addEventListener('click', (event) => { event.preventDefault(); clearStationSelection(); map.setView(FRANCE_CENTER, 6); });
 $('#aboutButton').addEventListener('click', () => $('#aboutDialog').showModal());
 $('#closeDialog').addEventListener('click', () => $('#aboutDialog').close());
+$('#aboutDialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) $('#aboutDialog').close(); });
 $('#selectionClose').addEventListener('click', clearStationSelection);
 $('#selectionFavorite').addEventListener('click', () => { if (state.selectedStationId) toggleFavorite(state.selectedStationId); });
 $('#selectionDirections').addEventListener('click', () => {
@@ -1038,6 +1133,21 @@ $('#selectionDirections').addEventListener('click', () => {
 });
 $('#closeDirectionsDialog').addEventListener('click', closeDirections);
 $('#directionsDialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeDirections(); });
+stationList.addEventListener('click', (event) => {
+  const moreButton = event.target.closest('[data-load-more]');
+  if (moreButton) {
+    state.listLimit += LIST_PAGE_SIZE;
+    renderStations();
+    return;
+  }
+  const favoriteButton = event.target.closest('[data-favorite-id]');
+  if (favoriteButton) {
+    toggleFavorite(Number(favoriteButton.dataset.favoriteId));
+    return;
+  }
+  const stationButton = event.target.closest('[data-station-id]');
+  if (stationButton) focusStation(Number(stationButton.dataset.stationId));
+});
 mobilePanelButton.addEventListener('click', openMobilePanel);
 mobilePanelClose.addEventListener('pointerup', (event) => { event.preventDefault(); event.stopPropagation(); closeMobilePanel(true); });
 mobilePanelClose.addEventListener('click', (event) => { event.preventDefault(); closeMobilePanel(true); });

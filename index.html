@@ -9,7 +9,8 @@
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="styles.css?v=classified-20260930">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="styles.css?v=polish-20261001">
 </head>
 <body>
   <div class="app-shell">
@@ -27,7 +28,7 @@
       <div class="topbar-center">
         <label class="global-search" for="stationSearch">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-          <input id="stationSearch" type="search" autocomplete="off" placeholder="Station, ville, code postal…">
+          <input id="stationSearch" type="search" autocomplete="off" placeholder="Ville, station ou code postal…">
           <button id="clearSearch" type="button" aria-label="Effacer la recherche" hidden>×</button>
         </label>
       </div>
@@ -87,21 +88,30 @@
             </div>
           </section>
 
-          <section class="route-card">
-            <div class="section-heading">
+          <details class="route-card" id="routeCard">
+            <summary class="section-heading">
               <div>
                 <span class="section-kicker">Sur la route</span>
                 <strong>Planifier un trajet</strong>
               </div>
-              <button id="clearRoute" type="button" class="text-button" hidden>Effacer</button>
-            </div>
+              <span class="route-summary-action" aria-hidden="true">
+                <span>Ouvrir</span>
+                <svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+              </span>
+            </summary>
 
-            <form id="routeForm">
+            <div class="route-card-body">
+              <div class="route-card-toolbar">
+                <span>Départ et arrivée en France</span>
+                <button id="clearRoute" type="button" class="text-button" hidden>Effacer le trajet</button>
+              </div>
+
+              <form id="routeForm">
               <div class="route-inputs">
                 <div class="autocomplete-field">
                   <label class="route-field">
                     <span class="route-dot start"></span>
-                    <input id="startInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="startSuggestions" aria-expanded="false" required placeholder="Départ">
+                    <input id="startInput" autocomplete="off" role="combobox" aria-label="Adresse de départ" aria-autocomplete="list" aria-controls="startSuggestions" aria-expanded="false" required placeholder="Départ">
                   </label>
                   <div class="suggestions" id="startSuggestions" role="listbox" aria-label="Suggestions de départ" hidden></div>
                 </div>
@@ -109,7 +119,7 @@
                 <div class="autocomplete-field">
                   <label class="route-field">
                     <span class="route-dot end"></span>
-                    <input id="endInput" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="endSuggestions" aria-expanded="false" required placeholder="Arrivée">
+                    <input id="endInput" autocomplete="off" role="combobox" aria-label="Adresse d’arrivée" aria-autocomplete="list" aria-controls="endSuggestions" aria-expanded="false" required placeholder="Arrivée">
                   </label>
                   <div class="suggestions" id="endSuggestions" role="listbox" aria-label="Suggestions d’arrivée" hidden></div>
                 </div>
@@ -118,15 +128,15 @@
                 <span>Afficher les stations sur ma route</span>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
               </button>
-            </form>
+              </form>
 
-            <div id="routeSummary" class="route-summary" aria-live="polite"></div>
+              <div id="routeSummary" class="route-summary" aria-live="polite"></div>
 
-            <div class="route-filter" id="routeFilterBlock" hidden>
+              <div class="route-filter" id="routeFilterBlock" hidden>
               <div class="toggle-row">
                 <div>
                   <strong>Limiter au trajet</strong>
-                  <small id="routeNearby">Stations proches du tracé</small>
+                  <small id="routeNearbyFilter">Stations proches du tracé</small>
                 </div>
                 <label class="switch">
                   <input id="routeFilter" type="checkbox" disabled>
@@ -145,8 +155,9 @@
                 <button type="button" data-distance="20" disabled>20</button>
                 <button type="button" data-distance="30" disabled>30 km</button>
               </div>
+              </div>
             </div>
-          </section>
+          </details>
 
           <section class="results-section">
             <div class="section-heading results-heading">
@@ -162,10 +173,10 @@
                   <option value="name">Nom</option>
                 </select>
               </label>
-              <span class="count" id="stationCount">—</span>
+              <span class="count" id="stationCount" aria-live="polite">—</span>
             </div>
             <div id="activeContext" class="active-context" hidden></div>
-            <div id="stationList" class="station-list" aria-live="polite"></div>
+            <div id="stationList" class="station-list"></div>
           </section>
         </div>
 
@@ -183,6 +194,20 @@
         <div class="map-top-controls">
           <div class="map-pill"><i></i><span id="mapPillText">Stations documentées</span></div>
         </div>
+
+        <details class="map-legend">
+          <summary>
+            <span class="legend-dots" aria-hidden="true"><i class="contactless"></i><i class="rollers"></i><i class="pressure"></i><i class="hand"></i></span>
+            <span>Légende</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+          </summary>
+          <div class="legend-panel">
+            <span><i class="contactless"></i>Sans contact auto</span>
+            <span><i class="rollers"></i>Rouleaux</span>
+            <span><i class="pressure"></i>Haute pression</span>
+            <span><i class="hand"></i>Detailing</span>
+          </div>
+        </details>
 
         <div class="map-status" id="mapStatus" role="status">Chargement des stations…</div>
 
@@ -244,6 +269,7 @@
   </dialog>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="app.js?v=classified-20260930" defer></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="app.js?v=polish-20261001" defer></script>
 </body>
 </html>
